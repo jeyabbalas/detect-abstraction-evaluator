@@ -196,7 +196,10 @@ export function composeSvg(node: Element, mode: Mode): { markup: string; width: 
       clone.setAttribute('y', String(y));
       clone.setAttribute('width', String(w));
       clone.setAttribute('height', String(hgt));
+      // Drop page-specific inline styles, but keep labels that overhang the plot frame:
+      // a nested <svg> clips to its own viewport unless overflow is visible.
       clone.removeAttribute('style');
+      clone.setAttribute('overflow', 'visible');
       parts.push(new XMLSerializer().serializeToString(clone));
       width = Math.max(width, x + w);
       height = Math.max(height, y + hgt);

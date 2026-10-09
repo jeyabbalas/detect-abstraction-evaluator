@@ -1,1 +1,579 @@
-/* Styles for the fields view. */
+/* Styles for the fields view (prefix fx-; drawer and tooltip parts live outside .fields-page). */
+
+/* ------------------------------------------------------------ card chrome */
+
+.fields-page .fx-card .card-head {
+  flex-wrap: wrap;
+}
+
+.fields-page .fx-card .card-titles {
+  flex: 1 1 320px;
+}
+
+.fields-page .fx-card .card-actions {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 6px;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.fx-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+}
+
+.fx-control-label {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+/* ---------------------------------------------------------------- legends */
+
+.fx-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin-bottom: 12px;
+}
+
+.fx-legend-row:empty {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- matrices */
+
+.fx-matrix {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Column names stay in view while scrolling through the variables. */
+.fields-page .fx-sticky {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 3;
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--hairline);
+}
+
+.fx-panel {
+  scroll-margin-top: calc(var(--header-h) + var(--fx-head-h, 26px) + 12px);
+  border-radius: var(--radius-sm);
+}
+
+.fx-panel-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 14px 0 6px;
+}
+
+.fx-panel:first-of-type .fx-panel-head {
+  padding-top: 10px;
+}
+
+.fx-panel-title {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.fx-panel-meta {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.fx-allgood {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.fx-allgood svg {
+  flex: none;
+  color: var(--good-text);
+}
+
+/* Marks the pointer should pass through to the cells and row targets below. */
+.fx-matrix g.fx-celltext,
+.fx-matrix g.fx-labels,
+.fx-matrix g.fx-gold,
+.fx-text-panel svg > g:not(.fx-rowhits) {
+  pointer-events: none;
+}
+
+.fx-matrix g.fx-cells > *,
+.fields-page rect.fx-rowhit {
+  cursor: pointer;
+}
+
+/* Rounded cells render as paths. */
+.fx-matrix g.fx-cells > :hover {
+  stroke: var(--ink);
+  stroke-width: 1.5px;
+}
+
+.fields-page rect.fx-rowhit:hover {
+  fill: var(--hover);
+}
+
+.fields-page rect.fx-rowhit:focus {
+  outline: none;
+}
+
+.fields-page rect.fx-rowhit:focus-visible {
+  fill: var(--hover);
+  stroke: var(--focus);
+  stroke-width: 2px;
+}
+
+.fx-matrix g.fx-colhead > text {
+  cursor: default;
+}
+
+@keyframes fx-flash {
+  from {
+    background-color: var(--mark-strong);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.fx-flash {
+  animation: fx-flash 1.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-flash {
+    animation: none;
+    outline: 2px solid var(--mark-ring);
+    outline-offset: 2px;
+  }
+}
+
+/* ------------------------------------------------------------- free text */
+
+.fx-text-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.fx-text-panels.side {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.fx-text-panel {
+  flex: none;
+  max-width: 100%;
+}
+
+.fx-text-title {
+  margin-bottom: 4px;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- tables */
+
+.fx-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--hairline-2);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.fx-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.tbl td.fx-num-strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- tooltips */
+
+.fx-tt-confusions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline);
+}
+
+.fx-tt-confusions .tt-row .k {
+  color: var(--ink-2);
+}
+
+.fx-tt-hint {
+  margin-top: 6px;
+}
+
+.fx-tt-table {
+  margin-top: 6px;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.fx-tt-table th {
+  padding: 0 0 2px 14px;
+  color: var(--ink-3);
+  font-weight: 500;
+  text-align: right;
+}
+
+.fx-tt-table td {
+  padding: 2px 0 2px 14px;
+}
+
+.fx-tt-table td:first-child {
+  padding-left: 0;
+}
+
+.fx-tt-table td.num {
+  text-align: right;
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------------------- drawer */
+
+.fx-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.fx-d-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fx-d-h {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fx-d-h .muted {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.fx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.fx-value.is-default {
+  color: var(--ink-3);
+}
+
+.fx-default-tag {
+  margin-left: 2px;
+  padding-left: 6px;
+  border-left: 1px solid var(--hairline-2);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.fx-d-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.fx-d-note svg {
+  flex: none;
+  color: var(--good-text);
+}
+
+.fx-d-desc {
+  margin-top: 2px;
+}
+
+.fx-d-desc-body {
+  max-height: 360px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.fx-d-pipe {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.fx-d-pipe.fx-flash {
+  border-radius: var(--radius-sm);
+}
+
+.fx-d-pipe-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fx-d-pipe-head .pipeline-name {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.fx-d-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.fx-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px 12px;
+}
+
+.fx-stats.wide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+}
+
+.fx-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.fx-stat .k {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.fx-stat .v {
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-stat .v.strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.fx-confusions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fx-d-sub {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.fx-d-sub .muted {
+  font-weight: 400;
+}
+
+.fx-conf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+
+.fx-conf-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-md);
+}
+
+.fx-conf-pair {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.fx-arrow {
+  color: var(--ink-3);
+}
+
+.fx-conf-n {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.fx-rec {
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-more {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+/* ------------------------------------------------- consistency, validity */
+
+.fx-quality {
+  align-items: start;
+}
+
+.fx-qrows {
+  display: flex;
+  flex-direction: column;
+}
+
+.fx-qrow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.fx-qrow:first-child {
+  padding-top: 2px;
+  border-top: 0;
+}
+
+.fx-qrow:last-child {
+  padding-bottom: 0;
+}
+
+.fx-qrow-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.fx-qrow-value {
+  font-size: var(--text-md);
+}
+
+.fx-qrow-value strong {
+  font-weight: 600;
+}
+
+.fx-chips-label {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.fx-mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.fx-chip-count {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-issues li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.fx-issue-text {
+  min-width: 0;
+  padding-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.fx-issue-rule {
+  display: block;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.fx-inline-chips {
+  display: inline-flex;
+  margin: 4px 0 0;
+}
+
+/* Compact tables inside the drawer. */
+.fx-drawer .tbl thead th {
+  font-size: var(--text-xs);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.fx-drawer .tbl th,
+.fx-drawer .tbl td {
+  padding: 5px 12px;
+}
+
+.fx-drawer .tbl th:first-child,
+.fx-drawer .tbl td:first-child {
+  padding-left: 0;
+}
+
+table.tbl.fx-label-table {
+  width: auto;
+  min-width: min(100%, 320px);
+}
+
+.fx-labels-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
