@@ -91,6 +91,16 @@
   color: var(--ink);
 }
 
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.icon-btn:disabled:hover {
+  background: transparent;
+  color: var(--ink-2);
+}
+
 .icon-btn[aria-pressed='true'] {
   background: var(--selected);
   color: var(--ink);
@@ -147,6 +157,15 @@
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-1), 0 0 0 1px var(--hairline);
+}
+
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.segmented button:disabled:hover {
+  color: var(--ink-2);
 }
 
 .segmented button .count {
