@@ -110,11 +110,18 @@ export function chartCard(opts: ChartCardOptions): ChartCard {
     opts.footnote ? h('div', { class: 'card-foot' }, opts.footnote) : null,
   );
 
+  /** A redraw asked for while the card was hidden (zero width) runs when it is shown. */
+  let missed = false;
+
   function draw(force = false) {
     if (mode !== 'chart') return;
     const width = Math.floor(chartHost.clientWidth);
-    if (!width) return;
-    if (!force && Math.abs(width - lastWidth) < 4) return;
+    if (!width) {
+      if (force) missed = true;
+      return;
+    }
+    if (!force && !missed && Math.abs(width - lastWidth) < 4) return;
+    missed = false;
     lastWidth = width;
     try {
       render(chartHost, opts.render(width, currentMode()));

@@ -239,12 +239,13 @@
 .card-head {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 16px 18px 0;
 }
 
 .card-titles {
-  flex: 1;
+  flex: 1 1 260px;
   min-width: 0;
 }
 
@@ -267,8 +268,11 @@
 .card-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
   flex: none;
+  margin-left: auto;
   margin-top: -4px;
 }
 
@@ -365,7 +369,7 @@ table.tbl {
   background: var(--hover);
 }
 
-.tbl tbody tr:last-child td {
+.tbl tbody tr:last-child > * {
   border-bottom: 0;
 }
 

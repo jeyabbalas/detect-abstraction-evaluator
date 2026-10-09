@@ -1,1 +1,490 @@
-/* Styles for the overview view. */
+/* Overview: pipeline comparison. Every rule is scoped to the overview page. */
+
+/* ------------------------------------------------------------- page head */
+
+.ov-head-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-right: -8px;
+}
+
+.ov-head-links .btn {
+  text-decoration: none;
+}
+
+.ov-head-links .btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ------------------------------------------------------------------ cards */
+
+.ov-page h2.card-title {
+  line-height: inherit;
+}
+
+/* Titles keep their room; controls wrap below them on narrow cards. */
+.ov-card .card-head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.ov-card .card-titles {
+  flex: 1 1 220px;
+}
+
+.ov-card .card-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ov-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.ov-status[hidden] {
+  display: none;
+}
+
+.ov-status .spinner,
+.ov-pending .spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+}
+
+.ov-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.ov-row > .card {
+  display: flex;
+  flex-direction: column;
+}
+
+.ov-row > .card > .card-body {
+  flex: 1;
+}
+
+/* Small multiples (headline metrics with intervals). */
+.ov-multiples {
+  display: grid;
+  justify-content: start;
+  row-gap: 18px;
+}
+
+.ov-panel {
+  min-width: 0;
+}
+
+.ov-panel-title {
+  margin-bottom: 4px;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* Error-type keys (FN = critical, FP = serious), always next to their label. */
+.ov-key {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: 0;
+}
+
+.ov-key.fn {
+  background: var(--critical);
+}
+
+.ov-key.fp {
+  background: var(--serious);
+}
+
+.ov-pair-title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ----------------------------------------------------------- leaderboard */
+
+.ov-lb .card-body,
+.ov-config .card-body {
+  padding: 6px 0 4px;
+}
+
+.ov-lb-table th,
+.ov-lb-table td {
+  padding: 10px 6px;
+}
+
+.ov-lb-table tr > :first-child,
+.ov-config-table tr > :first-child {
+  padding-left: 18px;
+}
+
+.ov-lb-table tr > :last-child,
+.ov-config-table tr > :last-child {
+  padding-right: 18px;
+}
+
+.ov-lb-table thead th,
+.ov-lb-table thead th.num {
+  padding-top: 8px;
+  vertical-align: bottom;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+/* .tbl only clears the last row's td borders; row headers are th here. */
+.ov-lb-table tbody tr:last-child > *,
+.ov-config-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.ov-lb-table tbody td,
+.ov-lb-table tbody th {
+  vertical-align: top;
+}
+
+.ov-lb-table .ov-sep {
+  padding-left: 12px;
+  border-left: 1px solid var(--hairline);
+}
+
+.ov-lb-table .ov-rank {
+  width: 1%;
+  color: var(--ink-3);
+}
+
+.ov-lb-table .ov-pipe {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  font-weight: inherit;
+  text-align: left;
+}
+
+.ov-lb-table thead .ov-pipe {
+  z-index: 2;
+}
+
+.ov-lb-table tbody tr:hover .ov-pipe,
+.ov-config-table tbody tr:hover .ov-config-key {
+  background: linear-gradient(var(--hover), var(--hover)), var(--surface);
+}
+
+.ov-lb-table .pipeline-name {
+  max-width: 220px;
+}
+
+.ov-sub {
+  max-width: 220px;
+  margin-top: 2px;
+  padding-left: 18px;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-v {
+  white-space: nowrap;
+}
+
+.ov-detail {
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* FP over FN: keys and labels left, counts right-aligned. */
+.ov-errs {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ov-errs .k {
+  color: var(--ink-3);
+  font-weight: 500;
+  text-align: left;
+}
+
+.ov-nowrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.ov-lb-table thead .info-tip {
+  flex: none;
+}
+
+.ov-tip {
+  border-radius: 3px;
+  cursor: help;
+  text-decoration: underline dotted var(--ink-muted);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* ------------------------------------------------------- run configuration */
+
+.ov-config-table th,
+.ov-config-table td {
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.ov-config-table .ov-config-key {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.ov-config-table thead .ov-config-key {
+  z-index: 2;
+}
+
+.ov-config-table tbody .ov-config-key code {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.ov-config-table .ov-config-key .badge {
+  margin-left: 8px;
+  vertical-align: 1px;
+}
+
+.ov-config-table tr.ov-differs .ov-config-key {
+  box-shadow: inset 2px 0 0 var(--ink-3);
+}
+
+.ov-config-table .ov-val {
+  min-width: 120px;
+  max-width: 360px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.ov-config-table .ov-val code {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.ov-config-table .ov-val code.muted {
+  color: var(--ink-3);
+}
+
+.ov-config-table .ov-numval {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov-config-table tr.ov-group th {
+  padding-top: 16px;
+  padding-bottom: 6px;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ov-config-table tbody:first-of-type tr.ov-group th {
+  padding-top: 10px;
+}
+
+.ov-config-table thead .pipeline-name {
+  max-width: 220px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.ov-norun {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.ov-config-same {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px 14px;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+}
+
+.ov-config-same svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--good-text);
+}
+
+/* ----------------------------------------------------- notes and methods */
+
+.ov-notes,
+.ov-methods {
+  padding: 11px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.ov-notes > summary,
+.ov-methods > summary {
+  min-height: 24px;
+}
+
+.ov-notes-title {
+  color: var(--ink);
+}
+
+.ov-notes-meta {
+  margin-left: 4px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+
+.ov-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 2px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--hairline);
+  list-style: none;
+}
+
+.ov-notes-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ov-note-icon {
+  display: inline-flex;
+  flex: none;
+  margin-top: 3px;
+}
+
+.ov-note-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ov-notes-list li.warning .ov-note-icon,
+.ov-notes-list li.error .ov-note-icon {
+  color: var(--warning-text);
+}
+
+.ov-notes-list li.info .ov-note-icon {
+  color: var(--ink-muted);
+}
+
+.ov-notes-list .pipeline-name {
+  vertical-align: bottom;
+}
+
+.ov-note-sep {
+  color: var(--ink-muted);
+}
+
+.ov-defs {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 12px 24px;
+  margin: 12px 0 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+
+.ov-defs dt {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ov-defs dd {
+  max-width: 820px;
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.ov-defs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ov-defs-list strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .ov-defs {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .ov-defs dd {
+    margin-bottom: 12px;
+  }
+
+  .ov-head-links {
+    margin-right: 0;
+    margin-left: -8px;
+  }
+}

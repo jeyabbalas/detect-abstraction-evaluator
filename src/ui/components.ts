@@ -312,7 +312,8 @@ export function dataTable<R>(columns: Column<R>[], rows: R[], opts: { sortable?:
         dataset: opts.sortable !== false ? { sort: c.key } : undefined,
         onclick:
           opts.sortable !== false
-            ? () => {
+            ? (e: MouseEvent) => {
+                if ((e.target as Element | null)?.closest('.info-tip')) return;
                 if (sortKey === c.key) dir = dir === 1 ? -1 : 1;
                 else {
                   sortKey = c.key;
