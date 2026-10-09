@@ -209,20 +209,54 @@ export function bootstrapInputs(analysis: Analysis, ids: readonly RecordId[]): B
   });
 }
 
+/** Run the bootstrap in a Web Worker when the platform has one, else inline (tests, old browsers). */
+async function computeBootstrap(inputs: BootstrapInput[], n: number, B: number): Promise<BootstrapResult> {
+  if (typeof Worker === 'undefined') {
+    await new Promise((r) => setTimeout(r, 0));
+    return runBootstrap(inputs, n, B);
+  }
+  let worker: Worker | null = null;
+  try {
+    worker = new Worker(new URL('./bootstrap.worker.ts', import.meta.url), { type: 'module' });
+    const w = worker;
+    // The inputs are small (a few typed arrays per pipeline), so they are copied, not transferred.
+    return await new Promise<BootstrapResult>((resolve, reject) => {
+      w.onmessage = (e: MessageEvent<{ ok: boolean; result?: BootstrapResult; error?: string }>) =>
+        e.data.ok ? resolve(e.data.result!) : reject(new Error(e.data.error));
+      w.onerror = (e) => reject(new Error(e.message || 'The bootstrap worker failed.'));
+      w.postMessage({ inputs, n, B });
+    });
+  } catch (err) {
+    console.warn('Bootstrap worker unavailable; computing on the main thread.', err);
+    return runBootstrap(inputs, n, B);
+  } finally {
+    worker?.terminate();
+  }
+}
+
+const inflight = new WeakMap<Analysis, Map<string, Promise<BootstrapResult | null>>>();
+
 /**
  * Bootstrap intervals for a population (records every pipeline was run on).
- * Cached per analysis; yields to the event loop first so the UI can paint.
+ * Computed once per analysis and population (concurrent callers share the work).
  */
-export async function getBootstrap(analysis: Analysis, population: PopulationName, B = 2000): Promise<BootstrapResult | null> {
+export function getBootstrap(analysis: Analysis, population: PopulationName, B = 2000): Promise<BootstrapResult | null> {
   let cache = bootstrapCache.get(analysis);
   if (!cache) bootstrapCache.set(analysis, (cache = new Map()));
   const key = `${population}:${B}`;
   const hit = cache.get(key);
-  if (hit) return hit;
+  if (hit) return Promise.resolve(hit);
+  let pending = inflight.get(analysis);
+  if (!pending) inflight.set(analysis, (pending = new Map()));
+  const running = pending.get(key);
+  if (running) return running;
   const ids = comparisonIds(analysis, population);
-  if (ids.length < 2) return null;
-  await new Promise((r) => setTimeout(r, 0));
-  const result = runBootstrap(bootstrapInputs(analysis, ids), ids.length, B);
-  cache.set(key, result);
-  return result;
+  if (ids.length < 2) return Promise.resolve(null);
+  const job = computeBootstrap(bootstrapInputs(analysis, ids), ids.length, B).then((result) => {
+    cache!.set(key, result);
+    pending!.delete(key);
+    return result;
+  });
+  pending.set(key, job);
+  return job;
 }
