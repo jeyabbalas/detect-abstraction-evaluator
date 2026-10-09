@@ -43,6 +43,10 @@ experiment/
 
 Every chart has a table view and exports to SVG, PNG (2×) and CSV; exports are re-rendered in light mode for print.
 
+Views are linkable once an experiment is loaded, e.g. `#/fields?field=Uterine_cancer_primary` opens a variable's
+details and `#/records/17?field=Specific_procedure_text&pipeline=<pipeline folder>` opens record 17 with that variable
+and pipeline in focus. In the record viewer, `←`/`→` (or `j`/`k`) step through records.
+
 ## Metrics
 
 The app recomputes every metric in the browser with a faithful port of the abstraction code's `evaluate.py` and checks
