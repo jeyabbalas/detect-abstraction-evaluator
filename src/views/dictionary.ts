@@ -11,6 +11,9 @@ const createDictionaryView: ViewFactory = ({ analysis }) => {
   const { schema } = analysis.experiment;
   const host = h('div', { class: 'dictionary-host' });
   const rules = schema.dictionary.conditionalRules.length;
+  // The dataset-level description is long; it lives in a disclosure above the table.
+  const table = { ...schema.dictionary, title: undefined, description: undefined, comment: undefined };
+  const about = [schema.dictionary.description, schema.dictionary.comment].filter(Boolean).join('\n\n');
 
   const downloadBtn = h(
     'button',
@@ -26,12 +29,7 @@ const createDictionaryView: ViewFactory = ({ analysis }) => {
     h(
       'div',
       { class: 'page-head' },
-      h(
-        'div',
-        null,
-        h('h1', null, 'Data dictionary'),
-        h('p', null, schema.title, ' — ', h('code', null, schema.rootName)),
-      ),
+      h('div', null, h('h1', null, 'Data dictionary'), h('p', null, schema.title, ' — ', h('code', null, schema.rootName))),
       h(
         'div',
         { class: 'dictionary-meta' },
@@ -41,10 +39,20 @@ const createDictionaryView: ViewFactory = ({ analysis }) => {
           badge(`${fmtInt(schema.textFields.length)} free text`, 'outline'),
           'Free-text variables (names ending in _text) are excluded from the headline metrics and reported as diagnostics only.',
         ),
-        rules ? withTooltip(badge(`${fmtInt(rules)} cross-field rules`, 'outline'), 'Conditional (if/then) rules the schema enforces; predictions are validated against them.') : null,
+        rules
+          ? withTooltip(badge(`${fmtInt(rules)} cross-field rules`, 'outline'), 'Conditional (if/then) rules the schema enforces; predictions are validated against them.')
+          : null,
         downloadBtn,
       ),
     ),
+    about
+      ? h(
+          'details',
+          { class: 'disclosure dictionary-about' },
+          h('summary', null, icon('chevronRight'), 'About this dictionary'),
+          h('div', { class: 'dictionary-about-body' }, about),
+        )
+      : null,
     host,
   );
 
@@ -55,7 +63,7 @@ const createDictionaryView: ViewFactory = ({ analysis }) => {
       if (!changed.has('mode') && renderedMode) return;
       renderedMode = state.mode;
       render(host);
-      renderDataDictionary(host, schema.dictionary, {
+      renderDataDictionary(host, table, {
         theme: state.mode,
         expandCategories: true,
         searchPlaceholder: 'Search variables, descriptions and values…  (press / to focus)',

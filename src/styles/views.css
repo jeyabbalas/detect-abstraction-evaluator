@@ -32,3 +32,20 @@
   background: var(--surface);
   overflow: hidden;
 }
+
+.dictionary-about {
+  padding: 12px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.dictionary-about-body {
+  margin-top: 10px;
+  max-height: 340px;
+  overflow: auto;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}

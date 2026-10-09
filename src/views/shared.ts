@@ -146,8 +146,9 @@ export function scopeBar(ctx: ViewContext, opts: { source?: boolean; legend?: bo
     onChange: (population) => store.set({ population }),
   });
 
+  // The switch only matters when the two sources can disagree.
   const hasReported = analysis.pipelines.some((pa) => pa.pipeline.reportedScores);
-  const showSource = opts.source !== false && hasReported;
+  const showSource = opts.source !== false && hasReported && (!analysis.allReportedMatch || !analysis.sameIds);
   const src: Segmented<MetricSource> | null = showSource
     ? segmented<MetricSource>({
         label: 'Metric source',
