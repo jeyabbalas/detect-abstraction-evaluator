@@ -12,7 +12,7 @@ const createDictionaryView: ViewFactory = ({ analysis }) => {
   const host = h('div', { class: 'dictionary-host' });
   const rules = schema.dictionary.conditionalRules.length;
   // The dataset-level description is long; it lives in a disclosure above the table.
-  const table = { ...schema.dictionary, title: undefined, description: undefined, comment: undefined };
+  const table = { ...schema.dictionary, title: schema.title, description: undefined, comment: undefined };
   const about = [schema.dictionary.description, schema.dictionary.comment].filter(Boolean).join('\n\n');
 
   const downloadBtn = h(
@@ -29,7 +29,12 @@ const createDictionaryView: ViewFactory = ({ analysis }) => {
     h(
       'div',
       { class: 'page-head' },
-      h('div', null, h('h1', null, 'Data dictionary'), h('p', null, schema.title, ' — ', h('code', null, schema.rootName))),
+      h(
+        'div',
+        null,
+        h('h1', null, 'Data dictionary'),
+        h('p', null, 'Every variable the pipelines abstract, from ', h('code', null, schema.rootName), ' — valid values, rules and cross-field constraints.'),
+      ),
       h(
         'div',
         { class: 'dictionary-meta' },

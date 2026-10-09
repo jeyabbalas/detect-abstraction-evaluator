@@ -65,8 +65,8 @@ export function mountApp(root: HTMLElement, store: Store): void {
     'Open…',
   );
   openBtn.addEventListener('click', () => {
-    store.set({ analysis: null });
     history.replaceState(null, '', location.pathname + location.search);
+    store.set({ analysis: null, route: parseHash('') });
   });
 
   function paintHeader(state: State) {
