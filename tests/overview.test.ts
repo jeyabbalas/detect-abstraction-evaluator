@@ -130,8 +130,8 @@ describe('run configuration', () => {
   });
 
   it('formats values for reading', () => {
-    expect(formatConfigValue('wall_seconds', 2758.7)).toMatchObject({ text: '45m 59s', kind: 'duration' });
-    expect(formatConfigValue('prompt_tokens', 3821193).text).toBe('3,821,193');
+    expect(formatConfigValue('wall_seconds', 3725.5)).toMatchObject({ text: '1h 02m', kind: 'duration' });
+    expect(formatConfigValue('prompt_tokens', 1234567).text).toBe('1,234,567');
     expect(formatConfigValue('seed', 20241009).text).toBe('20241009');
     expect(formatConfigValue('top_p', 0.95).text).toBe('0.95');
     expect(formatConfigValue('max_tokens', null)).toMatchObject({ text: 'null', kind: 'null' });
