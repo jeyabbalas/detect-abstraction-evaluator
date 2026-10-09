@@ -1,1 +1,243 @@
-/* Styles for the data view. */
+/* Data view: full-height interactive tables (@jeyabbalas/data-table). */
+
+.data-view {
+  /* Opaque tints (pinned cells are sticky and must not show what scrolls under them). */
+  --data-error-bg: color-mix(in srgb, var(--critical) 14%, var(--surface));
+  --data-warning-bg: color-mix(in srgb, var(--warning) 20%, var(--surface));
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: calc(100vh - var(--header-h));
+  height: calc(100dvh - var(--header-h));
+  min-height: 360px;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.data-toolbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px var(--gutter);
+}
+
+.data-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Many or long pipeline names: the control scrolls rather than overflowing the page. */
+.data-picker .segmented {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.data-picker .segmented::-webkit-scrollbar {
+  display: none;
+}
+
+.data-picker .segmented button {
+  flex: none;
+  max-width: 260px;
+}
+
+/* The scroll container would clip an outset focus ring. */
+.data-picker .segmented button:focus-visible {
+  outline-offset: -2px;
+}
+
+.data-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.data-select .select {
+  max-width: min(320px, 70vw);
+}
+
+.data-select .swatch[hidden],
+.data-busy[hidden],
+.data-overlay[hidden] {
+  display: none;
+}
+
+.data-busy {
+  flex: none;
+}
+
+.data-desc {
+  flex: 1 1 320px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.data-desc strong {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.data-desc-name {
+  white-space: nowrap;
+}
+
+.data-desc-name .swatch {
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  vertical-align: 0.05em;
+}
+
+/* Legend chip: the same tint and stripe the table paints on flagged cells. */
+.data-flag {
+  display: inline-block;
+  width: 14px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: -1px;
+  background: var(--data-error-bg);
+  box-shadow: inset 3px 0 0 var(--critical), inset 0 0 0 1px var(--hairline);
+}
+
+.data-flag.warning {
+  background: var(--data-warning-bg);
+  box-shadow: inset 3px 0 0 var(--warning), inset 0 0 0 1px var(--hairline);
+}
+
+.data-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Usage notes in the info tooltip (rendered in the shared tooltip on <body>). */
+.data-help {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: var(--ink-2);
+}
+
+.data-help li + li {
+  margin-top: 4px;
+}
+
+/* ------------------------------------------------------------------ table */
+
+.data-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--gutter) 16px;
+}
+
+/* Bounded height: the table virtualizes against this element. */
+.data-table-host {
+  flex: 1;
+  min-height: 0;
+  /* Keep the table's internal z-indexes under the overlay (its popovers and
+     dialogs are portalled to <body> and unaffected). */
+  isolation: isolate;
+  /* The app's own --dt-primary (tokens.css), read here before the table's
+     color-scheme attribute redeclares it inside. */
+  --data-dt-primary: var(--dt-primary);
+}
+
+/*
+ * Blend the table with the app. Every value is an app token that already
+ * follows light/dark, and the selector outranks the library's
+ * [data-dt-color-scheme] blocks, so both themes stay consistent.
+ */
+.data-table-host .dt-table-wrapper,
+.data-table-host .dt-root {
+  --dt-primary: var(--data-dt-primary);
+  --dt-bg: var(--surface);
+  --dt-bg-secondary: var(--surface-2);
+  --dt-bg-tertiary: var(--surface-3);
+  --dt-border: var(--grid);
+  --dt-border-light: var(--surface-2);
+  --dt-text: var(--ink);
+  --dt-font-family: var(--font-sans);
+  --dt-annotation-error-bg: var(--data-error-bg);
+  --dt-annotation-error-bdr: var(--critical);
+  --dt-annotation-error-fg: var(--ink);
+  --dt-annotation-warning-bg: var(--data-warning-bg);
+  --dt-annotation-warning-bdr: var(--warning);
+  --dt-annotation-warning-fg: var(--ink);
+  /* The library derives these on :root, where our tints do not reach. */
+  --dt-annotation-error-bg-hover: color-mix(in srgb, var(--data-error-bg) 82%, var(--critical) 18%);
+  --dt-annotation-warning-bg-hover: color-mix(in srgb, var(--data-warning-bg) 82%, var(--warning) 18%);
+}
+
+.data-overlay {
+  position: absolute;
+  inset: 0 var(--gutter) 16px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Long error text scrolls from its top rather than being cut off above. */
+  justify-content: safe center;
+  gap: 10px;
+  padding: 24px;
+  border: 1px solid var(--grid);
+  border-radius: var(--dt-radius, 6px);
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: var(--text-md);
+  text-align: center;
+  overflow: auto;
+}
+
+.data-overlay .callout {
+  max-width: 640px;
+  text-align: left;
+}
+
+.data-overlay .callout p {
+  margin-top: 6px;
+}
+
+.data-overlay .callout .btn {
+  margin-top: 10px;
+}
+
+.data-error-detail code {
+  display: block;
+  max-height: 120px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .data-actions {
+    margin-left: 0;
+  }
+}

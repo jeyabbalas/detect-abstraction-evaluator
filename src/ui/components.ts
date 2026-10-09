@@ -4,7 +4,7 @@ import type { Pipeline } from '../core/types';
 import { Outcome } from '../core/evaluate';
 import { h, render, type Child } from './dom';
 import { icon, type IconName } from './icons';
-import { seriesColor } from './palette';
+import { seriesVar } from './palette';
 
 // ---------------------------------------------------------------- segmented
 
@@ -253,7 +253,7 @@ export function pipelineLabel(p: Pipeline, opts: { short?: boolean; title?: stri
   return h(
     'span',
     { class: 'pipeline-name', title: opts.title ?? p.name },
-    h('span', { class: 'swatch', style: { color: seriesColor(p.index) }, dataset: { series: p.index } }),
+    h('span', { class: 'swatch', style: { color: seriesVar(p.index) }, dataset: { series: p.index } }),
     h('span', { class: 'label' }, p.name),
   );
 }

@@ -27,6 +27,14 @@ export function seriesColor(index: number, mode: Mode = currentMode()): string {
   return SERIES[mode][index] ?? OVERFLOW[mode];
 }
 
+/**
+ * Theme-aware CSS color for a pipeline's identity in HTML (swatches, chips):
+ * follows light/dark switches without re-rendering. Use `seriesColor` in Plot.
+ */
+export function seriesVar(index: number): string {
+  return index >= 0 && index < 8 ? `var(--series-${index + 1})` : 'var(--ink-muted)';
+}
+
 export const STATUS = {
   good: '#0ca30c',
   warning: '#fab219',
