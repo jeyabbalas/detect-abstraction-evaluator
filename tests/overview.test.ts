@@ -1,11 +1,7 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { analyze, getBootstrap, type Analysis } from '../src/core/analysis';
 import type { PairInterval } from '../src/core/bootstrap';
-import { loadExperiment } from '../src/core/load';
-import type { Pipeline, RunMeta, VirtualFile } from '../src/core/types';
-import { rerootFiles } from '../src/core/vfs';
+import type { Pipeline, PipelineConfig, PipelineSummary } from '../src/core/types';
 import {
   axisDomain,
   bestIndices,
@@ -19,9 +15,12 @@ import {
   placeLabels,
   rankRows,
   runConfigRows,
+  runLogNote,
   toCsv,
   type PipelineRow,
 } from '../src/views/overview/model';
+import { runCost } from '../src/views/shared';
+import { EXAMPLE_NAME, hasExample, loadExample } from './helpers';
 
 const row = (pos: number, f1: number | null): PipelineRow =>
   ({ pos, summary: f1 === null ? null : { informative_f1: f1 } }) as unknown as PipelineRow;
@@ -102,10 +101,10 @@ describe('axis domains', () => {
   });
 });
 
-describe('run configuration', () => {
-  const pipeline = (name: string, run: RunMeta | null): Pipeline =>
-    ({ id: name, name, index: 0, run, predictions: new Map(), reportedScores: null, scoresText: null, traceFiles: new Map(), ids: [1, 2, 3] }) as Pipeline;
+const pipeline = (name: string, config: PipelineConfig | null, summary: PipelineSummary | null = null): Pipeline =>
+  ({ id: name, name, index: 0, config, summary, predictions: new Map(), recordFiles: new Map(), notes: new Map(), failures: [], attempted: [1, 2, 3], ids: [1, 2, 3] }) as Pipeline;
 
+describe('run configuration', () => {
   it('flattens leaves with dotted keys; arrays and empty objects are leaves', () => {
     const flat = flattenLeaves({ a: 1, b: { c: [1, 2], d: { e: null } }, f: {} });
     expect([...flat]).toEqual([
@@ -116,27 +115,45 @@ describe('run configuration', () => {
     ]);
   });
 
-  it('groups rows, lists differing rows first and ignores pipelines without run.json', () => {
+  it('groups config.json and summary.json, lists differing rows first, ignores pipelines without either', () => {
     const rows = runConfigRows([
-      pipeline('a', { strategy: 'x', ids: [1, 2], settings: { model: 'm', extra_body: { top_p: 0.9 } }, usage: { calls: 3 } }),
-      pipeline('b', { strategy: 'y', ids: [1, 2], settings: { model: 'm', extra_body: { top_p: 0.9 }, seed: 7 }, usage: { calls: 3 } }),
+      pipeline(
+        'a',
+        { pipeline: 'baseline', model: 'm', client_settings: { temperature: 0.6, chat_template_kwargs: { enable_thinking: true } } },
+        { records: 2, calls: 3, finish_reasons: { stop: 3 }, records_with: { fixes: 1 }, failures: [], issues: { '1': { fixes: ['x'] } }, config: { model: 'm' } },
+      ),
+      pipeline(
+        'b',
+        { pipeline: 'progressive', model: 'm', client_settings: { temperature: 0.6, chat_template_kwargs: { enable_thinking: true }, top_k: 20 } },
+        { records: 2, calls: 9, finish_reasons: { stop: 8, length: 1 }, records_with: { fixes: 0 }, failures: [4] },
+      ),
       pipeline('c', null),
     ]);
     const key = (g: string) => rows.filter((r) => r.group === g).map((r) => `${r.key}${r.differs ? '*' : ''}`);
-    expect(key('pipeline')).toEqual(['strategy*', 'records run']);
-    expect(key('settings')).toEqual(['seed*', 'model', 'extra_body.top_p']);
-    expect(key('usage')).toEqual(['calls']);
-    expect(rows.find((r) => r.key === 'records run')!.values).toEqual([2, 2, undefined]);
+    expect(key('run')).toEqual(['pipeline*', 'model']);
+    expect(key('settings')).toEqual(['top_k*', 'temperature', 'chat_template_kwargs.enable_thinking']);
+    expect(key('usage')).toEqual(['calls*', 'finish_reasons.stop*', 'finish_reasons.length*', 'records']);
+    expect(key('log')).toEqual(['records_with.fixes*', 'failures*']);
+    expect(rows.find((r) => r.key === 'failures')!.values).toEqual([0, 1, undefined]);
   });
 
   it('formats values for reading', () => {
-    expect(formatConfigValue('wall_seconds', 3725.5)).toMatchObject({ text: '1h 02m', kind: 'duration' });
+    expect(formatConfigValue('model_seconds', 3725.5)).toMatchObject({ text: '1h 02m', kind: 'duration' });
     expect(formatConfigValue('prompt_tokens', 1234567).text).toBe('1,234,567');
     expect(formatConfigValue('seed', 20241009).text).toBe('20241009');
     expect(formatConfigValue('top_p', 0.95).text).toBe('0.95');
     expect(formatConfigValue('max_tokens', null)).toMatchObject({ text: 'null', kind: 'null' });
     expect(formatConfigValue('quantizations', ['fp8'])).toMatchObject({ text: '["fp8"]', kind: 'code' });
+    expect(formatConfigValue('schema_sha256', 'ab'.repeat(32))).toMatchObject({ text: 'abababababab…', kind: 'code', title: 'ab'.repeat(32) });
     expect(formatConfigValue('x', undefined).kind).toBe('missing');
+  });
+
+  it('reads run usage from summary.json', () => {
+    const c = runCost(
+      pipeline('a', { pipeline: 'progressive', model: 'm' }, { records: 4, calls: 10, repair_rounds: 2, prompt_tokens: 100, completion_tokens: 300, model_seconds: 12.5, finish_reasons: { stop: 9, length: 1 } }),
+    );
+    expect(c).toMatchObject({ records: 4, calls: 10, repairRounds: 2, totalTokens: 400, modelSeconds: 12.5, truncated: 1, strategy: 'progressive', model: 'm' });
+    expect(runCost(pipeline('b', null))).toMatchObject({ calls: null, totalTokens: null, truncated: null, strategy: null });
   });
 });
 
@@ -173,9 +190,9 @@ describe('csv', () => {
 });
 
 describe('experiment notes', () => {
-  it('folds the loader’s missing-prediction warning into the per-pipeline line', () => {
-    const pa = (name: string, missing: number[], invalid = 0, schema = 0) => ({
-      pipeline: { name },
+  it('folds the loader’s missing-prediction warning into the per-pipeline line, run logs after the checks', () => {
+    const pa = (name: string, missing: number[], invalid = 0, schema = 0, summary: PipelineSummary | null = null) => ({
+      pipeline: { name, summary },
       missing,
       invalid: Array.from({ length: invalid }, () => ({})),
       schemaIssues: new Map(Array.from({ length: schema }, (_, i) => [i, []])),
@@ -183,12 +200,12 @@ describe('experiment notes', () => {
     const analysis = {
       experiment: {
         issues: [
-          { level: 'info', message: 'abstractions/b/ has no scores.json.', pipeline: 'b' },
+          { level: 'info', message: 'abstractions/b/ has no config.json.', pipeline: 'b' },
           { level: 'warning', message: 'a: 2 record(s) have no prediction (e.g. 4, 9); they are scored as wrong.', pipeline: 'a' },
-          { level: 'warning', message: 'gold_standard/ holds 2 JSON files.' },
+          { level: 'warning', message: 'a: summary.json lists 2 failed record(s) (e.g. 4, 9).', pipeline: 'a' },
         ],
       },
-      pipelines: [pa('a', [4, 9]), pa('b', [], 1, 3)],
+      pipelines: [pa('a', [4, 9]), pa('b', [], 1, 3, { records_with: { unresolved: 2, fixes: 5 }, finish_reasons: { stop: 9, length: 1 } })],
       validatorError: null,
       goldSchemaIssues: new Map(),
     } as unknown as Analysis;
@@ -197,30 +214,26 @@ describe('experiment notes', () => {
       ['warning', null],
       ['warning', 0],
       ['warning', 1],
+      ['info', 1],
       ['info', null],
     ]);
     expect(notes[1]!.message).toContain('2 records without a prediction (e.g. 4, 9)');
     expect(notes[2]!.message).toBe('1 value outside the allowed values, scored as wrong · 3 records failing JSON Schema validation');
+    expect(notes[3]!.message).toBe('Run log: 2 records with problems left after the repair rounds · 1 reply cut off at the token limit.');
+  });
+
+  it('says nothing about a clean run log', () => {
+    expect(runLogNote(pipeline('a', null, { records_with: { unresolved: 0, gate_changes: 3 }, finish_reasons: { stop: 5 } }))).toBe('');
+    expect(runLogNote(pipeline('a', null))).toBe('');
   });
 });
 
-const EXAMPLE = join(__dirname, '..', 'examples', 'experiment_1');
-
-function readTree(dir: string, base = dir): VirtualFile[] {
-  const out: VirtualFile[] = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...readTree(full, base));
-    else out.push({ path: ['experiment_1', ...relative(base, full).split(sep)].join('/'), blob: new Blob([readFileSync(full)]) });
-  }
-  return out;
-}
-
-describe.skipIf(!existsSync(EXAMPLE))('overview on examples/experiment_1', () => {
+describe.skipIf(!hasExample)(`overview on examples/${EXAMPLE_NAME}`, () => {
   it('builds consistent rows, ranks and a full-precision CSV', async () => {
-    const analysis = analyze(await loadExperiment(rerootFiles(readTree(EXAMPLE), 'experiment_1')));
-    const snap = buildSnapshot(analysis, analysis.defaultSource, 'unique');
+    const analysis = analyze(await loadExample());
+    const snap = buildSnapshot(analysis, 'unique');
     expect(snap.n).toBe(analysis.experiment.uniqueIds.length);
+    expect(snap.gold).toBe(analysis.experiment.goldFileName);
     expect(snap.order).toHaveLength(analysis.pipelines.length);
     const f1 = snap.order.map((r) => r.summary!.informative_f1!);
     expect([...f1].sort((a, b) => b - a)).toEqual(f1);
@@ -228,6 +241,8 @@ describe.skipIf(!existsSync(EXAMPLE))('overview on examples/experiment_1', () =>
     for (const r of snap.rows) {
       expect(r.errorFreeCount).toBeLessThanOrEqual(r.n);
       expect(r.errorFree! * r.n).toBeCloseTo(r.errorFreeCount, 9);
+      expect(r.cost.calls).toBe(r.pipeline.summary!.calls);
+      expect(r.cost.totalTokens).toBe(r.pipeline.summary!.prompt_tokens! + r.pipeline.summary!.completion_tokens!);
     }
     const boot = await getBootstrap(analysis, 'unique');
     for (const r of snap.rows) {
@@ -237,5 +252,12 @@ describe.skipIf(!existsSync(EXAMPLE))('overview on examples/experiment_1', () =>
     const csv = leaderboardCsv(snap, boot).split('\n');
     expect(csv).toHaveLength(analysis.pipelines.length + 1);
     expect(csv[0]!.split(',')).toHaveLength(csv[1]!.split(',').length);
+    expect(csv[1]!.split(',')[4]).toBe(analysis.experiment.goldFileName);
+
+    // Every pipeline ran against the same dictionary, and the strategies and models differ.
+    const rows = runConfigRows(analysis.pipelines.map((pa) => pa.pipeline));
+    expect(rows.find((r) => r.key === 'schema_sha256')?.differs).toBe(false);
+    expect(rows.find((r) => r.key === 'pipeline')?.differs).toBe(true);
+    expect(rows.some((r) => r.group === 'settings' && r.key === 'temperature')).toBe(true);
   });
 });

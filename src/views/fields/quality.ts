@@ -4,7 +4,7 @@
  * the record list each pipeline was asked to abstract.
  */
 
-import { duplicateConsistencyFor, type Analysis, type MetricSource, type PipelineAnalysis } from '../../core/analysis';
+import { duplicateConsistencyFor, type Analysis, type PipelineAnalysis } from '../../core/analysis';
 import type { RecordId } from '../../core/types';
 import type { SchemaIssue } from '../../core/validate';
 import { badge, callout, infoTip, pipelineLabel } from '../../ui/components';
@@ -25,7 +25,7 @@ function card(title: Child, subtitle: Child, body: Child): HTMLElement {
 
 // ------------------------------------------------------------ consistency
 
-export function consistencyCard(analysis: Analysis, source: MetricSource, onField: (name: string) => void): HTMLElement {
+export function consistencyCard(analysis: Analysis, onField: (name: string) => void): HTMLElement {
   const groups = analysis.experiment.duplicateGroups.filter((g) => g.length > 1);
   const records = groups.reduce((sum, g) => sum + g.length, 0);
   const title = [
@@ -39,7 +39,7 @@ export function consistencyCard(analysis: Analysis, source: MetricSource, onFiel
   }
   const subtitle = `Identical report texts should get identical predictions — a measure of run-to-run stability over ${plural(groups.length, 'group')} of identical texts (${plural(records, 'record')}).`;
   const rows = analysis.pipelines.map((pa, i) => {
-    const dc = duplicateConsistencyFor(analysis, i, source);
+    const dc = duplicateConsistencyFor(analysis, i);
     const unstable = Object.entries(dc?.unstable_fields ?? {});
     return h(
       'div',
@@ -111,7 +111,7 @@ function issuesOf(pa: PipelineAnalysis): Issue[] {
 
 export function validityCard(analysis: Analysis, onRecord: (rid: RecordId, field?: string) => void): HTMLElement {
   const { schema } = analysis.experiment;
-  const rules = schema.dictionary.conditionalRules.length;
+  const rules = schema.ruleCount;
   const subtitle = `Predictions checked against the JSON Schema${rules ? ` and its ${plural(rules, 'cross-field rule')}` : ''}, each variable's allowed values, and the records each pipeline was asked to abstract.`;
   const per = analysis.pipelines.map((pa) => ({
     pa,

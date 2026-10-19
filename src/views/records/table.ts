@@ -12,6 +12,7 @@ import { OUTCOME_HELP, badge, callout, outcomeBadge } from '../../ui/components'
 import { h, type Child } from '../../ui/dom';
 import { plural, truncate } from '../../ui/format';
 import { icon } from '../../ui/icons';
+import { fieldNamed, runNotes, type RunNoteKind } from '../../core/notes';
 import { countOutcomes, describeCounts, textDiffers } from './model';
 import { breakable, pipeTag, swatch } from './ui';
 
@@ -425,6 +426,51 @@ export function issuesBlock(analysis: Analysis, rid: RecordId, cols: readonly nu
         ),
       ),
       more > 0 ? h('li', { class: 'muted' }, `and ${plural(more, 'more issue')}`) : null,
+    ),
+  ]);
+}
+
+const NOTE_TONE: Record<RunNoteKind, 'warning' | 'outline'> = {
+  unresolved: 'warning',
+  fallback: 'warning',
+  schema: 'warning',
+  gate: 'outline',
+  fix: 'outline',
+  other: 'outline',
+};
+
+/** Long notes (unresolved rule problems quote the rule) are cut; the full text is the title. */
+const NOTE_CHARS = 240;
+
+const NOTES_HELP =
+  'What each pipeline’s run log (summary.json) says about this record: problems left after the repair rounds, values the model did not give (fallbacks), negative labels changed because no relevant compartment was examined (gate changes) and skip patterns applied to the finished record (fixes).';
+
+/** The shown pipelines' own notes on this record (summary.json `issues`), or null. */
+export function notesBlock(analysis: Analysis, rid: RecordId, cols: readonly number[], shortName: readonly string[]): HTMLElement | null {
+  const { schema } = analysis.experiment;
+  const entries = cols.flatMap((i) => {
+    const p = analysis.pipelines[i]!.pipeline;
+    return runNotes(p.notes.get(rid)).map((note) => ({ i, p, note }));
+  });
+  if (!entries.length) return null;
+  const serious = entries.some((e) => NOTE_TONE[e.note.kind] === 'warning');
+  const more = entries.length - MAX_ISSUES;
+  return callout(serious ? 'warning' : 'info', [
+    h('strong', { title: NOTES_HELP }, `${plural(entries.length, 'pipeline note')} on this record`),
+    h(
+      'ul',
+      { class: 'rec-issues' },
+      entries.slice(0, MAX_ISSUES).map(({ i, p, note }) => {
+        const field = fieldNamed(note.text, schema);
+        return h(
+          'li',
+          { dataset: field ? { field } : undefined, class: field ? 'rec-issue-link' : undefined },
+          pipeTag(p, shortName[i]!),
+          badge(note.stage ? `${note.label} · ${note.stage}` : note.label, NOTE_TONE[note.kind]),
+          h('span', { title: note.text.length > NOTE_CHARS ? note.text : undefined }, truncate(note.text, NOTE_CHARS)),
+        );
+      }),
+      more > 0 ? h('li', { class: 'muted' }, `and ${plural(more, 'more note')}`) : null,
     ),
   ]);
 }

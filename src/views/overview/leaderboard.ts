@@ -1,11 +1,11 @@
-/** Leaderboard: every pipeline on the headline metrics, its errors and what the run cost. */
+/** Leaderboard: every pipeline on the headline metrics, its errors and what the run used. */
 
 import type { BootstrapResult, MetricKey } from '../../core/bootstrap';
 import { downloadText, infoTip, pipelineLabel, tooltipBody, withTooltip } from '../../ui/components';
 import { h, render, type Child } from '../../ui/dom';
 import { fmtCI, fmtCompact, fmtDuration, fmtInt, fmtMetric } from '../../ui/format';
 import { icon } from '../../ui/icons';
-import { METRIC_META } from '../shared';
+import { METRIC_META, pipelineDetail } from '../shared';
 import { cardShell } from './dom';
 import { bestIndices, leaderboardCsv, metricValue, type PipelineRow, type Snapshot } from './model';
 
@@ -124,58 +124,75 @@ function columns(boot: BootView): Col[] {
     {
       key: 'calls',
       label: 'LLM calls',
-      help: 'Model requests made during the run (run.json usage.calls), cached calls included.',
+      help: 'Model requests made during the run, repair rounds included (summary.json). Hover a value for the breakdown.',
       sep: true,
       best: { value: (r) => r.cost.calls, dir: 'min', format: fmtInt },
       cell: (r, best) => {
         const c = r.cost;
         if (c.calls === null) return missing();
         const rows: [Child, Child][] = [['Calls', fmtInt(c.calls)]];
-        if (c.cachedCalls !== null) rows.push(['Cached', fmtInt(c.cachedCalls)]);
-        if (c.retries !== null) rows.push(['Retries', fmtInt(c.retries)]);
-        if (c.failures !== null) rows.push(['Failures', fmtInt(c.failures)]);
-        if (c.callSeconds !== null) rows.push(['Summed call time', fmtDuration(c.callSeconds)]);
+        if (c.records !== null) rows.push(['Records', fmtInt(c.records)]);
+        if (c.repairRounds !== null) rows.push(['Repair rounds', fmtInt(c.repairRounds)]);
+        if (c.truncated !== null) rows.push(['Cut off at the token limit', fmtInt(c.truncated)]);
+        if (c.failures) rows.push(['Failed records', fmtInt(c.failures)]);
         return h('div', { class: ['ov-v', best && 'best'] }, tipped(fmtInt(c.calls), () => tooltipBody('LLM calls', rows)));
       },
     },
     {
       key: 'tokens',
       label: 'Tokens',
-      help: 'Prompt + output tokens (run.json usage). Hover a value for the breakdown.',
+      help: 'Prompt + completion tokens (summary.json); completion tokens include the reasoning. Hover a value for the breakdown.',
       best: { value: (r) => r.cost.totalTokens, dir: 'min', format: fmtCompact },
       cell: (r, best) => {
         const c = r.cost;
-        if (c.totalTokens === null) return missing();
+        const total = c.totalTokens;
+        if (total === null) return missing();
         return h(
           'div',
           { class: ['ov-v', best && 'best'] },
-          tipped(fmtCompact(c.totalTokens), () =>
+          tipped(fmtCompact(total), () =>
             tooltipBody(
               'Tokens',
               [
                 ['Prompt', fmtInt(c.promptTokens)],
-                ['Output', fmtInt(c.outputTokens)],
-                ['Thinking', fmtInt(c.thoughtTokens)],
-                ['Total', fmtInt(c.totalTokens)],
+                ['Completion', fmtInt(c.completionTokens)],
+                ['Total', fmtInt(total)],
+                ...(c.records ? ([['Per record', fmtInt(Math.round(total / c.records))]] as [Child, Child][]) : []),
               ],
-              'Total = prompt + output, as run.json reports them.',
+              'Completion tokens include the reasoning.',
             ),
           ),
         );
       },
     },
     {
-      key: 'wall',
-      label: 'Wall time',
-      help: 'Wall-clock duration of the run (run.json wall_seconds).',
-      best: { value: (r) => r.cost.wallSeconds, dir: 'min', format: fmtDuration },
-      cell: (r, best) => (r.cost.wallSeconds === null ? missing() : h('div', { class: ['ov-v', best && 'best'] }, fmtDuration(r.cost.wallSeconds))),
+      key: 'time',
+      label: 'Model time',
+      help: 'The duration of every model call of the run, summed (summary.json model_seconds). Calls that ran concurrently overlap, so this is not wall-clock time.',
+      best: { value: (r) => r.cost.modelSeconds, dir: 'min', format: fmtDuration },
+      cell: (r, best) => {
+        const seconds = r.cost.modelSeconds;
+        const records = r.cost.records;
+        if (seconds === null) return missing();
+        return h(
+          'div',
+          { class: ['ov-v', best && 'best'] },
+          records
+            ? tipped(fmtDuration(seconds), () =>
+                tooltipBody('Model time', [
+                  ['Total', fmtDuration(seconds)],
+                  ['Per record', fmtDuration(seconds / records)],
+                ]),
+              )
+            : fmtDuration(seconds),
+        );
+      },
     },
   ];
 }
 
 function pipelineCell(r: PipelineRow): Child {
-  const detail = [r.cost.strategy, r.cost.model].filter(Boolean).join(' · ');
+  const detail = pipelineDetail(r.pipeline);
   return [pipelineLabel(r.pipeline), detail ? h('div', { class: 'ov-sub', title: detail }, detail) : null];
 }
 
@@ -185,7 +202,7 @@ function table(snap: Snapshot, boot: BootView): HTMLTableElement {
   return h(
     'table',
     { class: 'tbl ov-lb-table' },
-    h('caption', { class: 'visually-hidden' }, 'Pipelines ranked by informative F1, with errors and run cost'),
+    h('caption', { class: 'visually-hidden' }, 'Pipelines ranked by informative F1, with errors and run usage'),
     h(
       'thead',
       null,
@@ -233,7 +250,7 @@ export function leaderboardCard(): Leaderboard {
   csvBtn.addEventListener('click', () => {
     if (!last) return;
     const { snap, boot } = last;
-    downloadText(leaderboardCsv(snap, boot.state === 'ready' ? boot.result : null), `leaderboard-${snap.population}-${snap.source}.csv`, 'text/csv');
+    downloadText(leaderboardCsv(snap, boot.state === 'ready' ? boot.result : null), `leaderboard-${snap.population}.csv`, 'text/csv');
   });
 
   return {
@@ -241,11 +258,7 @@ export function leaderboardCard(): Leaderboard {
     update(snap, boot) {
       last = { snap, boot };
       const scope = snap.population === 'unique' ? `${fmtInt(snap.n)} unique reports` : `all ${fmtInt(snap.n)} records`;
-      const basis =
-        snap.source === 'reported' && !snap.sameIds
-          ? 'as each scores.json reports it (each pipeline on its own records)'
-          : `on ${scope}`;
-      subtitle.textContent = `Ranked by informative F1 ${basis}. Bold marks the best value in each column.`;
+      subtitle.textContent = `Ranked by informative F1 on ${scope}, against ${snap.gold}. Bold marks the best value in each column.`;
       render(wrap, table(snap, boot));
     },
   };

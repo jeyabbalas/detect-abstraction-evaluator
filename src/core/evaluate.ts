@@ -1,5 +1,5 @@
 /**
- * Faithful port of the abstraction code's `evaluate.py`.
+ * Scores pipeline predictions against the gold standard.
  *
  * Scope: the categorical fields. Free-text fields are excluded from the
  * headline metrics and reported only as diagnostics.
@@ -52,8 +52,8 @@ export type OutcomeCode = (typeof Outcome)[keyof typeof Outcome];
 export const isError = (o: number): boolean => o >= Outcome.FP;
 
 /**
- * Python's built-in `sum()` over floats (CPython ≥ 3.12 uses Neumaier
- * compensated summation). Reproduces scores.json to the last bit.
+ * Neumaier compensated summation (as Python's built-in `sum()` over floats), so
+ * a total does not depend on the order of its terms.
  */
 export function pySum(values: Iterable<number>): number {
   let s = 0;
@@ -67,7 +67,7 @@ export function pySum(values: Iterable<number>): number {
   return c && Number.isFinite(c) ? s + c : s;
 }
 
-/** Python `_f1`: precision/recall are null only when both denominators are empty. */
+/** Precision, recall and F1; precision/recall are null only when both denominators are empty. */
 export function f1Triple(tp: number, fp: number, fn: number): [number | null, number | null, number | null] {
   const p = tp + fp ? tp / (tp + fp) : null;
   const r = tp + fn ? tp / (tp + fn) : null;
@@ -76,7 +76,7 @@ export function f1Triple(tp: number, fp: number, fn: number): [number | null, nu
   return [p, r, (2 * p * r) / (p + r)];
 }
 
-/** Python's default string ordering (by code point). */
+/** String ordering by code point. */
 export const pyCompare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** Normalized cell value: strings as-is; null/absent → MISSING; anything else as JSON. */
@@ -159,7 +159,7 @@ export function fieldScores(
   };
 }
 
-/** Order like Python's Counter.most_common(): by count desc, then first-seen order. */
+/** By count desc, then first-seen order. */
 function sortConfusion(c: Record<string, number>): Record<string, number> {
   const entries = Object.entries(c);
   const order = new Map(entries.map(([k], i) => [k, i]));
@@ -276,7 +276,7 @@ export function scorePopulation(ctx: EvaluationContext, pred: RecordMap, populat
   };
 }
 
-/** Python `evaluate(pred, ids=...)`: both populations plus duplicate consistency. */
+/** Both populations (restricted to `ids`, when given) plus duplicate consistency. */
 export function evaluate(ctx: EvaluationContext, pred: RecordMap, ids?: Iterable<RecordId> | null): Scores {
   const keep = ids ? new Set(ids) : null;
   const result: Scores = {};
@@ -286,66 +286,4 @@ export function evaluate(ctx: EvaluationContext, pred: RecordMap, ids?: Iterable
   }
   result.duplicate_consistency = duplicateConsistency(pred, ctx.duplicateGroups, ctx.schema.categoricalFields);
   return result;
-}
-
-// ---------------------------------------------------------------------------
-// Comparing recomputed scores with a reported scores.json
-// ---------------------------------------------------------------------------
-
-export interface ScoreDifference {
-  path: string;
-  reported: unknown;
-  computed: unknown;
-}
-
-const TOLERANCE = 1e-9;
-
-function sameValue(a: unknown, b: unknown): boolean {
-  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= TOLERANCE * Math.max(1, Math.abs(a));
-  return a === b;
-}
-
-/** Differences between reported and recomputed scores (summary, categories, fields, text). */
-export function compareScores(reported: Scores, computed: Scores, limit = 50): ScoreDifference[] {
-  const diffs: ScoreDifference[] = [];
-  const push = (path: string, r: unknown, c: unknown) => {
-    if (diffs.length < limit && !sameValue(r, c)) diffs.push({ path, reported: r, computed: c });
-  };
-  for (const pop of ['unique', 'all'] as const) {
-    const r = reported[pop];
-    const c = computed[pop];
-    if (!r && !c) continue;
-    if (!r || !c) {
-      diffs.push({ path: pop, reported: r ? 'present' : 'absent', computed: c ? 'present' : 'absent' });
-      continue;
-    }
-    push(`${pop}.records`, r.records, c.records);
-    for (const [k, v] of Object.entries(r.summary ?? {})) push(`${pop}.summary.${k}`, v, (c.summary as unknown as Record<string, unknown>)[k]);
-    for (const [cat, rs] of Object.entries(r.per_category ?? {})) {
-      const cs = c.per_category[cat] as unknown as Record<string, unknown> | undefined;
-      for (const [k, v] of Object.entries(rs)) push(`${pop}.per_category.${cat}.${k}`, v, cs?.[k]);
-    }
-    for (const [field, rf] of Object.entries(r.per_field ?? {})) {
-      const cf = c.per_field[field];
-      if (!cf) {
-        push(`${pop}.per_field.${field}`, 'present', 'absent');
-        continue;
-      }
-      for (const k of ['n', 'accuracy', 'macro_f1', 'tp', 'fp', 'fn', 'precision', 'recall', 'f1'] as const) {
-        push(`${pop}.per_field.${field}.${k}`, rf[k], cf[k]);
-      }
-    }
-    for (const [field, rt] of Object.entries(r.text ?? {})) {
-      const ct = c.text[field];
-      push(`${pop}.text.${field}.presence_agreement`, rt.presence_agreement, ct?.presence_agreement);
-      push(`${pop}.text.${field}.exact_match`, rt.exact_match, ct?.exact_match);
-    }
-  }
-  const rd = reported.duplicate_consistency;
-  const cd = computed.duplicate_consistency;
-  if (rd && cd) {
-    push('duplicate_consistency.agreement', rd.agreement, cd.agreement);
-    push('duplicate_consistency.cells', rd.cells, cd.cells);
-  }
-  return diffs;
 }

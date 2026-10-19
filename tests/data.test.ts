@@ -1,11 +1,6 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { analyze, type Analysis } from '../src/core/analysis';
 import { MISSING, Outcome, isError } from '../src/core/evaluate';
-import { loadExperiment } from '../src/core/load';
-import { rerootFiles } from '../src/core/vfs';
-import type { VirtualFile } from '../src/core/types';
 import {
   CELLS,
   GOLD,
@@ -23,6 +18,7 @@ import {
   tableNames,
   type DatasetOption,
 } from '../src/views/data/datasets';
+import { EXAMPLE_NAME, hasExample, loadExample } from './helpers';
 
 describe('data view helpers', () => {
   it('maps record ids to __rowid__ from typed, bigint or plain column reads', () => {
@@ -113,23 +109,10 @@ describe('data view helpers', () => {
   });
 });
 
-const EXAMPLE = join(__dirname, '..', 'examples', 'experiment_1');
-const hasExample = existsSync(EXAMPLE);
-
-function readTree(dir: string, base = dir): VirtualFile[] {
-  const out: VirtualFile[] = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...readTree(full, base));
-    else out.push({ path: ['experiment_1', ...relative(base, full).split(sep)].join('/'), blob: new Blob([readFileSync(full)]) });
-  }
-  return out;
-}
-
-describe.skipIf(!hasExample)('data view datasets on examples/experiment_1', () => {
+describe.skipIf(!hasExample)(`data view datasets on examples/${EXAMPLE_NAME}`, () => {
   let analysis: Analysis;
   beforeAll(async () => {
-    analysis = analyze(await loadExperiment(rerootFiles(readTree(EXAMPLE), 'experiment_1')));
+    analysis = analyze(await loadExample());
   });
 
   it('offers gold, every pipeline and the cell comparison', () => {

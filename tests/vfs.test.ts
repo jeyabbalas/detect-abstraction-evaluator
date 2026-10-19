@@ -34,7 +34,7 @@ describe('rerootFiles', () => {
   });
 
   it('accepts files already relative to the experiment root', () => {
-    const set = rerootFiles([file('gold_standard/g.json'), file('abstractions/r/run.json')], 'picked');
+    const set = rerootFiles([file('gold_standard/g.json'), file('abstractions/r/config.json')], 'picked');
     expect(set.name).toBe('picked');
     expect(set.files).toHaveLength(2);
   });

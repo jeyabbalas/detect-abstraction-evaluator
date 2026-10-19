@@ -662,7 +662,12 @@ button.chip:hover {
 .menu button svg {
   width: 14px;
   height: 14px;
+  flex: none;
   color: var(--ink-3);
+}
+.menu-icon-space {
+  width: 14px;
+  flex: none;
 }
 
 /* ----------------------------------------------------------------- drawer */

@@ -11,6 +11,7 @@ import type { Analysis, PipelineAnalysis } from '../../core/analysis';
 import { MISSING, Outcome, cellValue, isError } from '../../core/evaluate';
 import type { AbstractionRecord, FieldInfo, RecordId, SchemaModel } from '../../core/types';
 import type { SchemaIssue } from '../../core/validate';
+import { fieldNamed, runNotes } from '../../core/notes';
 import { OUTCOME_LABEL } from '../../ui/components';
 import { fmtInt, truncate } from '../../ui/format';
 
@@ -389,17 +390,34 @@ function pipelineDataset(analysis: Analysis, option: DatasetOption, pa: Pipeline
     errorCounts: pa.errorCount,
     annotations(rowOf) {
       const out: NewAnnotation[] = [];
+      const failure = new Map(p.failures.map((f) => [f.rid, f.message]));
       for (const rid of missing) {
         const rowId = rowOf.get(rid);
         if (rowId === undefined) continue;
+        const why = failure.get(rid);
         out.push({
           scope: 'row',
           rowId,
           severity: 'error',
           code: 'NO_PREDICTION',
           source: 'predictions.json',
-          message: 'No prediction for this record — the run was asked for it, and every variable counts as wrong.',
+          message: `No prediction for this record${why ? ` (${why})` : ''} — the run covered it, and every variable counts as wrong.`,
         });
+      }
+      for (const [rid, notes] of p.notes) {
+        const rowId = rowOf.get(rid);
+        if (rowId === undefined) continue;
+        for (const note of runNotes(notes)) {
+          const field = fieldNamed(note.text, schema);
+          const base = {
+            severity: note.kind === 'gate' || note.kind === 'fix' ? ('info' as const) : ('warning' as const),
+            code: `RUN_${note.kind.toUpperCase()}`,
+            source: 'summary.json',
+            message: `${note.label}${note.stage ? ` (${note.stage})` : ''}: ${note.text}`,
+          };
+          if (field && columnSet.has(field)) out.push({ scope: 'cell', rowId, column: field, ...base });
+          else out.push({ scope: 'row', rowId, ...base });
+        }
       }
       for (const rid of scored) {
         const rowId = rowOf.get(rid);

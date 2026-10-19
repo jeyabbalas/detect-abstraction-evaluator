@@ -1,50 +1,62 @@
 /**
- * Pipeline traces (`traces/<record_id>.json`): loaded lazily, cached, and
- * rendered for reading — known keys as chips, lists and small tables; the
- * stages as collapsed accordions; anything unknown as JSON.
+ * A pipeline's record file (`records/<record_id>.json`: the finished record and
+ * the model trace): loaded lazily, cached, and rendered for reading — the
+ * trace's known keys as chips, lists and small tables; the stages as collapsed
+ * accordions with every reply and its reasoning; anything unknown as JSON.
  */
 
-import { readTrace } from '../../core/load';
+import { readRecordFile } from '../../core/load';
 import type { Pipeline, RecordId } from '../../core/types';
 import { badge } from '../../ui/components';
 import { h, type Child } from '../../ui/dom';
 import { fmtDuration, fmtInt, humanize, plural } from '../../ui/format';
 import { icon } from '../../ui/icons';
 
-export type Trace = Record<string, unknown>;
+export type RecordFile = Record<string, unknown>;
 type Obj = Record<string, unknown>;
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const isScalar = (v: unknown) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
 
-/** Small LRU cache of parsed traces (they can be large). */
+/** Small LRU cache of parsed record files (they can be large). */
 export class TraceCache {
-  private readonly cache = new Map<string, Promise<Trace | null>>();
+  private readonly cache = new Map<string, Promise<RecordFile | null>>();
 
   constructor(private readonly size = 24) {}
 
-  get(p: Pipeline, rid: RecordId): Promise<Trace | null> {
+  get(p: Pipeline, rid: RecordId): Promise<RecordFile | null> {
     const key = `${p.index}:${rid}`;
     let hit = this.cache.get(key);
     if (hit) this.cache.delete(key);
-    else hit = readTrace(p, rid);
+    else hit = readRecordFile(p, rid);
     this.cache.set(key, hit);
     while (this.cache.size > this.size) this.cache.delete(this.cache.keys().next().value!);
     return hit;
   }
 }
 
-const KNOWN: readonly string[] = ['examined', 'skipped', 'findings', 'gate_changes', 'final_fixes', 'final_schema_errors'];
+/** Trace keys shown above the stages, in this order. */
+const KNOWN: readonly string[] = ['skipped', 'examined_compartments', 'neoplastic_findings', 'fallbacks', 'gate_changes', 'fixes', 'schema_errors'];
 const LABEL: Record<string, string> = {
-  examined: 'Examined',
-  skipped: 'Skipped',
-  findings: 'Findings',
+  skipped: 'Skipped stages',
+  examined_compartments: 'Examined compartments',
+  neoplastic_findings: 'Neoplastic findings',
+  fallbacks: 'Fallbacks',
   gate_changes: 'Gate changes',
-  final_fixes: 'Final fixes',
-  final_schema_errors: 'Final schema errors',
+  fixes: 'Fixes',
+  schema_errors: 'Schema errors',
 };
-const NORMAL_FINISH = new Set(['stop', 'end_turn', 'stop_sequence', 'finish_reason_stop']);
+const HELP: Record<string, string> = {
+  skipped: 'Stages that did not run on this record; their fields got their least informative label without the model.',
+  fallbacks: 'Values the model did not give, filled with the field’s least informative label.',
+  gate_changes: 'Negative labels changed to “Cannot determine” because none of the field’s compartments was examined.',
+  fixes: 'Skip patterns (the schema’s x-fix rules) applied to the finished record.',
+  schema_errors: 'Schema violations left in the finished record.',
+};
+/** File keys rendered elsewhere: the record is the variables table. */
+const FILE_KEYS = new Set(['record_id', 'record', 'trace', 'seconds']);
+const NORMAL_FINISH = new Set(['stop', 'end_turn', 'stop_sequence', 'eos']);
 
 const sentence = (key: string) => {
   const s = humanize(key);
@@ -101,21 +113,23 @@ function valueView(v: unknown, depth = 0): Child {
 
 interface Usage {
   calls: number;
-  cached: number;
   prompt: number;
-  output: number;
-  thought: number;
+  completion: number;
   seconds: number;
+  /** Replies that did not finish normally (e.g. cut off at the token limit). */
+  unfinished: number;
 }
 
+const finishOf = (r: Obj): string | null => (typeof r.finish_reason === 'string' ? r.finish_reason : null);
+const abnormal = (finish: string | null) => finish !== null && !NORMAL_FINISH.has(finish.toLowerCase());
+
 function usageOf(replies: Obj[]): Usage {
-  const u: Usage = { calls: replies.length, cached: 0, prompt: 0, output: 0, thought: 0, seconds: 0 };
+  const u: Usage = { calls: replies.length, prompt: 0, completion: 0, seconds: 0, unfinished: 0 };
   for (const r of replies) {
-    if (r.cached === true) u.cached += 1;
     u.prompt += num(r.prompt_tokens) ?? 0;
-    u.output += num(r.output_tokens) ?? 0;
-    u.thought += num(r.thought_tokens) ?? 0;
+    u.completion += num(r.completion_tokens) ?? 0;
     u.seconds += num(r.seconds) ?? 0;
+    if (abnormal(finishOf(r))) u.unfinished += 1;
   }
   return u;
 }
@@ -123,29 +137,26 @@ function usageOf(replies: Obj[]): Usage {
 function usageText(u: Usage): string[] {
   return [
     u.prompt ? `${fmtInt(u.prompt)} prompt` : '',
-    u.output ? `${fmtInt(u.output)} output` : '',
-    u.thought ? `${fmtInt(u.thought)} thinking tokens` : '',
+    u.completion ? `${fmtInt(u.completion)} completion tokens` : '',
     u.seconds ? fmtDuration(u.seconds) : '',
-    u.cached ? `${fmtInt(u.cached)} cached` : '',
   ].filter(Boolean);
 }
 
 const repliesOf = (stage: Obj): Obj[] => (Array.isArray(stage.replies) ? stage.replies.filter(isObj) : []);
 
 function replyView(r: Obj, i: number, n: number): HTMLElement {
-  const finish = typeof r.finish_reason === 'string' ? r.finish_reason : null;
+  const finish = finishOf(r);
+  const tries = num(r.tries);
   const meta = [
     n > 1 ? `Reply ${i + 1} of ${n}` : 'Reply',
     num(r.prompt_tokens) !== null ? `${fmtInt(num(r.prompt_tokens))} prompt` : '',
-    num(r.output_tokens) !== null ? `${fmtInt(num(r.output_tokens))} output` : '',
-    num(r.thought_tokens) !== null ? `${fmtInt(num(r.thought_tokens))} thinking tokens` : '',
+    num(r.completion_tokens) !== null ? `${fmtInt(num(r.completion_tokens))} completion tokens` : '',
     num(r.seconds) !== null ? fmtDuration(num(r.seconds)) : '',
-    finish && NORMAL_FINISH.has(finish.toLowerCase()) ? finish : '',
-    r.cached === true ? 'cached' : '',
+    tries !== null && tries > 1 ? `${fmtInt(tries)} tries` : '',
   ].filter(Boolean);
-  const known = new Set(['text', 'thoughts', 'prompt_tokens', 'output_tokens', 'thought_tokens', 'seconds', 'finish_reason', 'cached']);
+  const known = new Set(['text', 'reasoning', 'prompt_tokens', 'completion_tokens', 'seconds', 'finish_reason', 'tries']);
   const other = Object.fromEntries(Object.entries(r).filter(([k]) => !known.has(k)));
-  const thoughts = typeof r.thoughts === 'string' && r.thoughts ? r.thoughts : null;
+  const reasoning = typeof r.reasoning === 'string' && r.reasoning ? r.reasoning : null;
   return h(
     'div',
     { class: 'rec-reply' },
@@ -153,15 +164,15 @@ function replyView(r: Obj, i: number, n: number): HTMLElement {
       'div',
       { class: 'rec-reply-meta' },
       meta.join(' · '),
-      finish && !NORMAL_FINISH.has(finish.toLowerCase()) ? badge(`finish: ${finish}`, 'warning') : null,
+      abnormal(finish) ? badge(finish === 'length' ? 'cut off at the token limit' : `finish: ${finish}`, 'warning') : null,
     ),
-    typeof r.text === 'string' ? h('pre', { class: 'rec-pre' }, r.text) : null,
-    thoughts
+    typeof r.text === 'string' ? h('pre', { class: 'rec-pre' }, r.text.trim()) : null,
+    reasoning
       ? h(
           'details',
           { class: 'disclosure rec-reasoning' },
-          h('summary', null, icon('chevronRight'), 'Reasoning', h('span', { class: 'muted' }, ` · ${plural(thoughts.length, 'character')}`)),
-          h('pre', { class: 'rec-pre' }, thoughts),
+          h('summary', null, icon('chevronRight'), 'Reasoning', h('span', { class: 'muted' }, ` · ${plural(reasoning.length, 'character')}`)),
+          h('pre', { class: 'rec-pre' }, reasoning),
         )
       : null,
     Object.keys(other).length ? jsonPre(other) : null,
@@ -169,47 +180,57 @@ function replyView(r: Obj, i: number, n: number): HTMLElement {
 }
 
 function stageView(name: string, stage: unknown): HTMLElement {
-  const summary = (meta: Child) =>
-    h('summary', null, icon('chevronRight'), h('span', { class: 'rec-stage-name' }, name), meta);
+  const summary = (meta: Child) => h('summary', null, icon('chevronRight'), h('span', { class: 'rec-stage-name' }, name), meta);
   if (!isObj(stage)) return h('details', { class: 'disclosure rec-stage' }, summary(null), h('div', { class: 'rec-stage-body' }, jsonPre(stage)));
   const replies = repliesOf(stage);
-  const rounds = num(stage.rounds);
+  const usage = usageOf(replies);
+  const round = num(stage.round);
+  const calls = num(stage.calls) ?? replies.length;
   const problems = Array.isArray(stage.problems) ? stage.problems : null;
-  const meta = [
-    rounds !== null ? plural(rounds, 'round') : '',
-    replies.length ? plural(replies.length, 'reply', 'replies') : '',
-    ...usageText(usageOf(replies)),
-  ].filter(Boolean);
-  const known = new Set(['rounds', 'problems', 'extra', 'replies']);
+  const outputs = isObj(stage.outputs) ? Object.entries(stage.outputs) : [];
+  const meta = [round !== null ? `Round ${round}` : '', calls ? plural(calls, 'call') : '', ...usageText(usage)].filter(Boolean);
+  const known = new Set(['round', 'calls', 'problems', 'outputs', 'replies']);
   const other = Object.fromEntries(Object.entries(stage).filter(([k]) => !known.has(k)));
-  const extra = isObj(stage.extra) ? Object.entries(stage.extra) : [];
   return h(
     'details',
     { class: 'disclosure rec-stage' },
     summary([
       h('span', { class: 'rec-stage-meta' }, meta.join(' · ')),
-      problems?.length ? badge(plural(problems.length, 'problem'), 'warning') : null,
+      problems?.length ? badge(plural(problems.length, 'unresolved problem'), 'warning') : null,
+      usage.unfinished ? badge(plural(usage.unfinished, 'reply', 'replies') + ' cut off', 'warning') : null,
     ]),
     h(
       'div',
       { class: 'rec-stage-body' },
-      problems?.length ? h('div', { class: 'rec-stage-part' }, h('div', { class: 'rec-trace-key' }, 'Problems'), valueView(problems)) : null,
-      extra.map(([k, v]) => h('div', { class: 'rec-stage-part' }, h('div', { class: 'rec-trace-key' }, sentence(k)), valueView(v))),
+      problems?.length
+        ? h('div', { class: 'rec-stage-part' }, h('div', { class: 'rec-trace-key' }, 'Problems left after the repair rounds'), valueView(problems))
+        : null,
+      outputs.map(([k, v]) => h('div', { class: 'rec-stage-part' }, h('div', { class: 'rec-trace-key' }, sentence(k)), valueView(v))),
       replies.map((r, i) => replyView(r, i, replies.length)),
       Object.keys(other).length ? h('div', { class: 'rec-stage-part' }, h('div', { class: 'rec-trace-key' }, 'Other'), jsonPre(other)) : null,
     ),
   );
 }
 
-/** Render one parsed trace. */
-export function traceView(trace: Trace): HTMLElement {
+/** Render one parsed record file. */
+export function traceView(file: RecordFile): HTMLElement {
+  const trace = isObj(file.trace) ? file.trace : {};
   const stages = isObj(trace.stages) ? trace.stages : null;
   const allReplies = stages ? Object.values(stages).flatMap((st) => (isObj(st) ? repliesOf(st) : [])) : [];
-  const totals = stages
-    ? [plural(Object.keys(stages).length, 'stage'), plural(allReplies.length, 'call'), ...usageText(usageOf(allReplies))]
-    : [];
-  const rows = KNOWN.filter((k) => k in trace).map((k) => [h('dt', null, LABEL[k] ?? sentence(k)), h('dd', null, valueView(trace[k]))]);
-  const unknown = Object.keys(trace).filter((k) => !KNOWN.includes(k) && k !== 'stages');
+  const usage = usageOf(allReplies);
+  const seconds = num(file.seconds);
+  const totals = [
+    typeof trace.pipeline === 'string' ? trace.pipeline : '',
+    stages ? plural(Object.keys(stages).length, 'stage') : '',
+    stages ? plural(allReplies.length, 'call') : '',
+    ...usageText({ ...usage, seconds: seconds ?? usage.seconds }),
+  ].filter(Boolean);
+  const rows = KNOWN.filter((k) => k in trace).map((k) => [
+    h('dt', { title: HELP[k] }, LABEL[k] ?? sentence(k)),
+    h('dd', null, valueView(trace[k])),
+  ]);
+  const unknown = Object.keys(trace).filter((k) => !KNOWN.includes(k) && k !== 'stages' && k !== 'pipeline');
+  const extra = Object.keys(file).filter((k) => !FILE_KEYS.has(k));
   return h(
     'div',
     { class: 'rec-trace-view' },
@@ -223,6 +244,8 @@ export function traceView(trace: Trace): HTMLElement {
           Object.entries(stages).map(([name, st]) => stageView(name, st)),
         )
       : null,
-    unknown.map((k) => h('section', { class: 'rec-trace-section' }, h('h3', null, k), jsonPre(trace[k]))),
+    [...unknown.map((k) => [k, trace[k]] as const), ...extra.map((k) => [k, file[k]] as const)].map(([k, v]) =>
+      h('section', { class: 'rec-trace-section' }, h('h3', null, k), jsonPre(v)),
+    ),
   );
 }

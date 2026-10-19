@@ -4,12 +4,12 @@ import { join, relative, resolve, sep } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
 /**
- * Dev-server only: exposes the git-ignored examples/experiment_1 folder so the
- * landing page can load it without a file picker. Never part of a build.
+ * Dev-server only: exposes the git-ignored examples/new_experiment_1 folder so
+ * the landing page can load it without a file picker. Never part of a build.
  */
 function localExamples(): Plugin {
   const base = resolve(import.meta.dirname, 'examples');
-  const root = join(base, 'experiment_1');
+  const root = join(base, 'new_experiment_1');
   const walk = (dir: string): string[] =>
     readdirSync(dir).flatMap((name) => {
       const full = join(dir, name);
@@ -22,7 +22,7 @@ function localExamples(): Plugin {
       server.middlewares.use('/__examples', (req, res, next) => {
         if (!existsSync(root)) {
           res.statusCode = 404;
-          res.end('examples/experiment_1 not found');
+          res.end('examples/new_experiment_1 not found');
           return;
         }
         const url = decodeURIComponent((req.url ?? '').split('?')[0] ?? '');

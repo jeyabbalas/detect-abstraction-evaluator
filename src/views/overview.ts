@@ -31,7 +31,7 @@ const createOverviewView: ViewFactory = (ctx) => {
   const P = analysis.pipelines.length;
 
   const initial = store.get();
-  let latest: Snapshot = buildSnapshot(analysis, initial.source, initial.population);
+  let latest: Snapshot = buildSnapshot(analysis, initial.population);
   let chart: ChartSnapshot = { ...latest, boot: null, bootState: 'pending' };
   let chartsDrawn = false;
   let destroyed = false;
@@ -45,7 +45,7 @@ const createOverviewView: ViewFactory = (ctx) => {
   const summary = [
     plural(P, 'pipeline'),
     `${plural(nRecords, 'record')}${nUnique && nUnique < nRecords ? ` (${fmtInt(nUnique)} unique report texts)` : ''}`,
-    `${plural(schema.categoricalFields.length, 'categorical variable')} scored`,
+    `${plural(schema.categoricalFields.length, 'categorical variable')} scored against ${experiment.goldFileName}`,
     schema.textFields.length ? `${plural(schema.textFields.length, 'free-text variable')} excluded` : '',
   ]
     .filter(Boolean)
@@ -169,10 +169,10 @@ const createOverviewView: ViewFactory = (ctx) => {
     el,
     update(state, changed) {
       bar.update(state, changed);
-      const dataChanged = changed.has('population') || changed.has('source') || changed.has('analysis');
+      const dataChanged = changed.has('population') || changed.has('analysis');
       let bootDrawn = false;
       if (dataChanged) {
-        latest = buildSnapshot(analysis, state.source, state.population);
+        latest = buildSnapshot(analysis, state.population);
         leaderboard.update(latest, bootView());
         errors.sync();
         redraw(errors.card);

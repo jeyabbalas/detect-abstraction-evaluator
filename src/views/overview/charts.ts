@@ -52,9 +52,6 @@ const ciText = (lo: number | null | undefined, hi: number | null | undefined) =>
 
 // ------------------------------------------------- headline metrics with CIs
 
-/** A displayed (e.g. scores.json) value that the recomputed interval is not centered on. */
-const offCenter = (value: number | null, estimate: number | null) => value !== null && estimate !== null && Math.abs(value - estimate) >= 5e-4;
-
 const PANEL_ROW = 26;
 const PANEL_TOP = 2;
 const PANEL_BOTTOM = 26;
@@ -138,18 +135,12 @@ function renderMultiples(width: number, mode: Mode, snap: ChartSnapshot): Elemen
       svg,
       data,
       (d) => d.name,
-      (d) => {
-        const est = snap.boot?.intervals[d.r.pos]?.[metric]?.estimate ?? null;
-        return tooltipBody(
-          pipelineLabel(d.r.pipeline),
-          [
-            [METRIC_META[metric].label, fmtMetric(d.value)],
-            ['95% CI', d.lo !== null && d.hi !== null ? fmtCI(d.lo, d.hi) : snap.bootState === 'pending' ? 'computing…' : '—'],
-            ['Records', fmtInt(snap.n)],
-          ],
-          offCenter(d.value, est) ? `The interval is recomputed in the browser (estimate ${fmtMetric(est)}); this scores.json value differs.` : undefined,
-        );
-      },
+      (d) =>
+        tooltipBody(pipelineLabel(d.r.pipeline), [
+          [METRIC_META[metric].label, fmtMetric(d.value)],
+          ['95% CI', d.lo !== null && d.hi !== null ? fmtCI(d.lo, d.hi) : snap.bootState === 'pending' ? 'computing…' : '—'],
+          ['Records', fmtInt(snap.n)],
+        ]),
       c.grid,
     );
     grid.append(
@@ -228,17 +219,7 @@ export function ciCard(src: SnapshotSource): CiCard {
       const snap = src.chart();
       subtitle.textContent = `${populationPhrase(snap)[0]!.toUpperCase()}${populationPhrase(snap).slice(1)}. Each panel’s axis is zoomed to its own data.`;
       const B = fmtInt(snap.boot?.B ?? 2000);
-      const mixed = snap.order.some((r) =>
-        HEADLINE_METRICS.some((m) => offCenter(pointEstimate(r, m, snap.boot), snap.boot?.intervals[r.pos]?.[m]?.estimate ?? null)),
-      );
-      foot.textContent = [
-        `Dots: point estimates. Bars: 95% percentile bootstrap intervals over records (B = ${B}; fixed seed); records — not cells — are resampled because cells within a report are correlated.`,
-        mixed
-          ? 'Intervals are always recomputed in the browser; where a scores.json differs from that recomputation its dot can sit off-center — switch Metrics to Recomputed to match.'
-          : '',
-      ]
-        .filter(Boolean)
-        .join(' ');
+      foot.textContent = `Dots: point estimates. Bars: 95% percentile bootstrap intervals over records (B = ${B}; fixed seed); records — not cells — are resampled because cells within a report are correlated.`;
     },
     setBusy(on) {
       status.hidden = !on;
@@ -379,7 +360,7 @@ export function errorCard(src: SnapshotSource): SimpleCard {
 
 function formatCost(key: CostKey, v: number | null): string {
   if (v === null) return '—';
-  return key === 'wall' ? fmtDuration(v) : fmtInt(v);
+  return key === 'time' ? fmtDuration(v) : fmtInt(v);
 }
 
 function axisNumber(v: number): string {
@@ -406,7 +387,7 @@ function renderCost(width: number, mode: Mode, snap: ChartSnapshot, key: CostKey
   if (!points.length) {
     return emptyState({ icon: 'chart', title: `No ${meta.label.toLowerCase()} to plot`, body: 'No pipeline reports this measure with an informative F1.' });
   }
-  const unit = key === 'wall' ? durationUnit(Math.max(...points.map((p) => p.raw!))) : null;
+  const unit = key === 'time' ? durationUnit(Math.max(...points.map((p) => p.raw!))) : null;
   const data = points.map((p) => ({ ...p, x: p.raw! / (unit?.div ?? 1) }));
 
   const H = sharedHeight(snap.order.length);
@@ -489,9 +470,9 @@ function renderCost(width: number, mode: Mode, snap: ChartSnapshot, key: CostKey
         ['Informative F1', fmtMetric(d.y)],
         ['95% CI', d.lo !== null && d.hi !== null ? fmtCI(d.lo, d.hi) : snap.bootState === 'pending' ? 'computing…' : '—'],
         [meta.label, formatCost(key, d.raw)],
-        ...(key === 'calls' ? [] : ([['LLM calls', fmtInt(d.r.cost.calls)]] as [Child, Child][])),
-        ...(key === 'tokens' ? [] : ([['Total tokens', fmtInt(d.r.cost.totalTokens)]] as [Child, Child][])),
-        ...(key === 'wall' ? [] : ([['Wall-clock time', fmtDuration(d.r.cost.wallSeconds)]] as [Child, Child][])),
+        ...(['calls', 'tokens', 'time'] as const)
+          .filter((k) => k !== key)
+          .map((k): [Child, Child] => [COST_META[k].label, formatCost(k, COST_META[k].value(d.r.cost))]),
       ]),
   );
   return svg;
@@ -514,14 +495,14 @@ function costTable(snap: ChartSnapshot): TableView {
       { key: 'f1_lo', label: 'F1 CI low', numeric: true, value: (r) => iv(r)?.lo ?? null, cell: (r) => fmtMetric(iv(r)?.lo) },
       { key: 'f1_hi', label: 'F1 CI high', numeric: true, value: (r) => iv(r)?.hi ?? null, cell: (r) => fmtMetric(iv(r)?.hi) },
       int('calls', 'LLM calls', (r) => r.cost.calls),
+      int('repairs', 'Repair rounds', (r) => r.cost.repairRounds),
       int('prompt', 'Prompt tokens', (r) => r.cost.promptTokens),
-      int('output', 'Output tokens', (r) => r.cost.outputTokens),
-      int('thinking', 'Thinking tokens', (r) => r.cost.thoughtTokens),
+      int('completion', 'Completion tokens', (r) => r.cost.completionTokens),
       int('total', 'Total tokens', (r) => r.cost.totalTokens),
-      { key: 'wall', label: 'Wall-clock seconds', numeric: true, value: (r) => r.cost.wallSeconds, cell: (r) => fmtDuration(r.cost.wallSeconds) },
+      { key: 'model_seconds', label: 'Model seconds', numeric: true, value: (r) => r.cost.modelSeconds, cell: (r) => fmtDuration(r.cost.modelSeconds) },
     ],
     snap.order,
-    { caption: 'Informative F1 and run cost per pipeline' },
+    { caption: 'Informative F1 and run usage per pipeline' },
   );
   return { el: t.wrap, csv: t.toCsv };
 }
@@ -546,7 +527,7 @@ export function costCard(src: SnapshotSource, costs: readonly CostKey[]): Simple
       : null;
   card = chartCard({
     title: 'Cost vs. accuracy',
-    subtitle: costs.length ? `Informative F1 against ${costs.length > 1 ? 'a cost measure' : COST_META[key].label.toLowerCase()} from each run.json.` : 'Informative F1 against run cost from run.json.',
+    subtitle: `Informative F1 against ${costs.length > 1 ? 'a cost measure' : costs.length ? COST_META[key].label.toLowerCase() : 'run cost'} from each summary.json.`,
     controls: control?.el,
     footnote: costs.length ? foot : undefined,
     exportName: 'cost-vs-accuracy',
@@ -555,7 +536,7 @@ export function costCard(src: SnapshotSource, costs: readonly CostKey[]): Simple
     render: (width, mode) =>
       costs.length
         ? renderCost(width, mode, src.chart(), key)
-        : emptyState({ icon: 'chart', title: 'No run cost recorded', body: 'None of the pipelines has usage (calls, tokens or time) in its run.json.' }),
+        : emptyState({ icon: 'chart', title: 'No run cost recorded', body: 'None of the pipelines has calls, tokens or time in a summary.json.' }),
     table: costs.length ? () => costTable(src.chart()) : undefined,
   });
   function sync() {
@@ -563,7 +544,8 @@ export function costCard(src: SnapshotSource, costs: readonly CostKey[]): Simple
     const absent = snap.order.filter((r) => COST_META[key].value(r.cost) === null).map((r) => r.pipeline.name);
     foot.textContent = [
       'The x-axis starts at zero. Whiskers: 95% bootstrap intervals of informative F1.',
-      absent.length ? `Not shown (no ${COST_META[key].label.toLowerCase()} in run.json): ${absent.join(', ')}.` : '',
+      key === 'time' ? 'Model time sums the duration of every call; concurrent calls overlap, so it is not wall-clock time.' : '',
+      absent.length ? `Not shown (no ${COST_META[key].label.toLowerCase()} in summary.json): ${absent.join(', ')}.` : '',
     ]
       .filter(Boolean)
       .join(' ');

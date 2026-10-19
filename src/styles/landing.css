@@ -149,6 +149,10 @@
   justify-content: center;
 }
 
+.landing-actions {
+  margin-top: 10px;
+}
+
 @media (max-width: 760px) {
   .landing-grid {
     grid-template-columns: 1fr;

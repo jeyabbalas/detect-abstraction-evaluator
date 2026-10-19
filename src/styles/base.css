@@ -215,6 +215,18 @@ kbd {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.gold-btn {
+  min-width: 0;
+}
+
+.gold-btn-label {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-main {
@@ -304,6 +316,22 @@ kbd {
   flex: 1;
 }
 
+.scope-gold {
+  display: inline-flex;
+  min-width: 0;
+  cursor: default;
+}
+
+.scope-gold .badge {
+  max-width: 280px;
+}
+
+.scope-gold-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -329,6 +357,9 @@ kbd {
   }
   .app-nav a span {
     display: none;
+  }
+  .gold-btn-label {
+    max-width: 120px;
   }
 }
 

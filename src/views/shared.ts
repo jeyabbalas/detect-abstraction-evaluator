@@ -1,14 +1,13 @@
-/** Helpers shared by the views: metric metadata, the scope bar, run costs. */
+/** Helpers shared by the views: metric metadata, the scope bar, run usage. */
 
-import { comparisonIds, type Analysis, type MetricSource, type PipelineAnalysis } from '../core/analysis';
+import { comparisonIds, type Analysis, type PipelineAnalysis } from '../core/analysis';
 import type { MetricKey } from '../core/bootstrap';
 import { isError } from '../core/evaluate';
 import type { Pipeline, PopulationName, RecordId } from '../core/types';
 import type { State, StateKey } from '../state';
-import { badge, callout, dataTable, infoTip, openDrawer, pipelineLabel, segmented, withTooltip, type Segmented } from '../ui/components';
+import { badge, callout, infoTip, pipelineLabel, segmented, withTooltip, type Segmented } from '../ui/components';
 import { h, render } from '../ui/dom';
 import { fmtInt } from '../ui/format';
-import { icon } from '../ui/icons';
 import type { ViewContext } from './types';
 
 export interface MetricMeta {
@@ -64,19 +63,23 @@ export function errorFreeRate(pa: PipelineAnalysis, ids: readonly RecordId[]): n
   return ok / ids.length;
 }
 
+/** What a run used, from its summary.json (self-hosted models: calls, tokens and time, not money). */
 export interface RunCost {
+  /** Records the run abstracted. */
+  records: number | null;
   calls: number | null;
-  cachedCalls: number | null;
+  repairRounds: number | null;
   promptTokens: number | null;
-  outputTokens: number | null;
-  thoughtTokens: number | null;
-  /** prompt + output tokens. */
+  /** Completion tokens, reasoning included. */
+  completionTokens: number | null;
+  /** prompt + completion tokens. */
   totalTokens: number | null;
-  wallSeconds: number | null;
-  /** Sum of per-call latencies. */
-  callSeconds: number | null;
-  retries: number | null;
-  failures: number | null;
+  /** Summed model-call time. */
+  modelSeconds: number | null;
+  /** Replies cut off at the token limit (finish_reason "length"). */
+  truncated: number | null;
+  /** Records the run failed on or could not read. */
+  failures: number;
   model: string | null;
   strategy: string | null;
 }
@@ -84,24 +87,29 @@ export interface RunCost {
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export function runCost(p: Pipeline): RunCost {
-  const u = p.run?.usage ?? {};
-  const prompt = num(u.prompt_tokens);
-  const output = num(u.output_tokens);
-  const model = p.run?.settings?.model;
+  const s = p.summary ?? {};
+  const prompt = num(s.prompt_tokens);
+  const completion = num(s.completion_tokens);
+  const reasons = s.finish_reasons && typeof s.finish_reasons === 'object' ? s.finish_reasons : null;
   return {
-    calls: num(u.calls),
-    cachedCalls: num(u.cached_calls),
+    records: num(s.records),
+    calls: num(s.calls),
+    repairRounds: num(s.repair_rounds),
     promptTokens: prompt,
-    outputTokens: output,
-    thoughtTokens: num(u.thought_tokens),
-    totalTokens: prompt !== null || output !== null ? (prompt ?? 0) + (output ?? 0) : null,
-    wallSeconds: num(p.run?.wall_seconds),
-    callSeconds: num(u.seconds),
-    retries: num(u.retries),
-    failures: p.run?.failures && typeof p.run.failures === 'object' ? Object.keys(p.run.failures).length : num(u.failures),
-    model: typeof model === 'string' ? model : null,
-    strategy: typeof p.run?.strategy === 'string' ? p.run.strategy : null,
+    completionTokens: completion,
+    totalTokens: prompt !== null || completion !== null ? (prompt ?? 0) + (completion ?? 0) : null,
+    modelSeconds: num(s.model_seconds),
+    truncated: reasons ? (num(reasons.length) ?? 0) : null,
+    failures: p.failures.length,
+    model: typeof p.config?.model === 'string' ? p.config.model : null,
+    strategy: typeof p.config?.pipeline === 'string' ? p.config.pipeline : null,
   };
+}
+
+/** "progressive · Qwen3.5-9B" (either part may be missing). */
+export function pipelineDetail(p: Pipeline): string {
+  const c = runCost(p);
+  return [c.strategy, c.model].filter(Boolean).join(' · ');
 }
 
 export function populationCount(analysis: Analysis, population: PopulationName): number {
@@ -115,8 +123,7 @@ export function pipelineLegend(analysis: Analysis): HTMLElement {
     'div',
     { class: 'legend', 'aria-label': 'Pipelines' },
     analysis.pipelines.map((pa) => {
-      const cost = runCost(pa.pipeline);
-      const detail = [cost.strategy, cost.model].filter(Boolean).join(' · ');
+      const detail = pipelineDetail(pa.pipeline);
       return withTooltip(h('span', { class: 'legend-item', tabIndex: 0 }, pipelineLabel(pa.pipeline)), () =>
         h('div', null, h('div', { class: 'tt-title' }, pa.pipeline.name), detail ? h('div', { class: 'tt-muted' }, detail) : null),
       );
@@ -132,7 +139,7 @@ export interface ScopeBar {
 }
 
 /** One row of controls that scope everything below it. */
-export function scopeBar(ctx: ViewContext, opts: { source?: boolean; legend?: boolean } = {}): ScopeBar {
+export function scopeBar(ctx: ViewContext, opts: { legend?: boolean } = {}): ScopeBar {
   const { analysis, store } = ctx;
   const nUnique = populationCount(analysis, 'unique');
   const nAll = populationCount(analysis, 'all');
@@ -146,28 +153,12 @@ export function scopeBar(ctx: ViewContext, opts: { source?: boolean; legend?: bo
     onChange: (population) => store.set({ population }),
   });
 
-  // The switch only matters when the two sources can disagree.
-  const hasReported = analysis.pipelines.some((pa) => pa.pipeline.reportedScores);
-  const showSource = opts.source !== false && hasReported && (!analysis.allReportedMatch || !analysis.sameIds);
-  const src: Segmented<MetricSource> | null = showSource
-    ? segmented<MetricSource>({
-        label: 'Metric source',
-        value: store.get().source,
-        options: [
-          { value: 'reported', label: 'scores.json', title: 'Show the metrics each pipeline reported in its scores.json' },
-          { value: 'recomputed', label: 'Recomputed', title: 'Show metrics recomputed in the browser on the records every pipeline was run on' },
-        ],
-        onChange: (source) => store.set({ source }),
-      })
-    : null;
-
-  const status = verificationBadge(analysis);
   const notes = h('div', { class: 'scope-notes' });
   if (!analysis.sameIds) {
     notes.appendChild(
       callout(
         'warning',
-        `Pipelines were run on different records. Recomputed metrics compare them on the ${fmtInt(analysis.commonIds.length)} records every pipeline was run on; scores.json values cover each pipeline's own records.`,
+        `Pipelines were run on different records. They are compared on the ${fmtInt(analysis.commonIds.length)} gold-standard records every pipeline was run on.`,
       ),
     );
   }
@@ -179,8 +170,7 @@ export function scopeBar(ctx: ViewContext, opts: { source?: boolean; legend?: bo
       'div',
       { class: 'scope-bar' },
       h('div', { class: 'field' }, h('span', null, 'Population'), pop.el, infoTip(POPULATION_HELP)),
-      src ? h('div', { class: 'field' }, h('span', null, 'Metrics'), src.el) : null,
-      status,
+      goldBadge(analysis),
       h('div', { class: 'spacer' }),
       opts.legend !== false ? pipelineLegend(analysis) : null,
     ),
@@ -191,49 +181,28 @@ export function scopeBar(ctx: ViewContext, opts: { source?: boolean; legend?: bo
     el,
     update(state, changed) {
       if (changed.has('population')) pop.set(state.population);
-      if (changed.has('source')) src?.set(state.source);
     },
   };
 }
 
-/** Whether the browser's recomputation reproduces each scores.json. */
-export function verificationBadge(analysis: Analysis): HTMLElement {
-  const withScores = analysis.pipelines.filter((pa) => pa.differences !== null);
-  if (!withScores.length) {
-    return withTooltip(badge('Computed in browser', 'outline', 'info'), 'No pipeline has a scores.json; every metric is computed in the browser from predictions and the gold standard.');
-  }
-  const mismatched = withScores.filter((pa) => pa.differences!.length);
-  if (!mismatched.length) {
-    return withTooltip(
-      badge(`Verified against scores.json`, 'good', 'checkCircle'),
-      `Recomputing every metric in the browser from predictions.json and the gold standard reproduces the scores.json of all ${withScores.length} pipeline${withScores.length === 1 ? '' : 's'} exactly.`,
-    );
-  }
-  const btn = h(
-    'button',
-    { type: 'button', class: 'badge warning', style: { border: '0', cursor: 'pointer' } },
-    icon('alert'),
-    `${mismatched.length} scores.json differ${mismatched.length === 1 ? 's' : ''}`,
+/** The gold standard the metrics are scored against. */
+export function goldBadge(analysis: Analysis): HTMLElement {
+  const { experiment } = analysis;
+  return withTooltip(
+    h('span', { class: 'scope-gold' }, badge(['Gold: ', h('span', { class: 'scope-gold-name' }, experiment.goldFileName)], 'outline', 'scale')),
+    () =>
+      h(
+        'div',
+        null,
+        h('div', { class: 'tt-title' }, 'Gold standard'),
+        h('div', null, `${experiment.goldFileName} · ${fmtInt(experiment.goldIds.length)} records`),
+        h(
+          'div',
+          { class: 'tt-muted' },
+          'Every metric is computed in the browser from the predictions and this gold standard. Switch it from the header to re-score.',
+        ),
+      ),
   );
-  btn.addEventListener('click', () => {
-    openDrawer({
-      title: 'scores.json vs. recomputed metrics',
-      subtitle: 'The browser recomputes every metric from predictions.json and the gold standard. These values disagree with what the pipeline reported — usually because the gold standard or the scorer changed after the run.',
-      body: mismatched.map((pa) => {
-        const t = dataTable(
-          [
-            { key: 'path', label: 'Metric', value: (d) => d.path, cell: (d) => h('code', null, d.path) },
-            { key: 'reported', label: 'scores.json', value: (d) => String(d.reported), numeric: true },
-            { key: 'computed', label: 'Recomputed', value: (d) => String(d.computed), numeric: true },
-          ],
-          pa.differences!,
-          { sortable: false },
-        );
-        return h('section', null, h('h3', { style: { fontSize: '14px', marginBottom: '8px' } }, pipelineLabel(pa.pipeline)), t.wrap);
-      }),
-    });
-  });
-  return btn;
 }
 
 /** Re-render helper for views that rebuild a region on state changes. */

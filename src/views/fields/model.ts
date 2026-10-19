@@ -1,10 +1,10 @@
 /**
  * Data model of the Fields view: per-category and per-variable scores of every
- * pipeline under the current population and metric source, plus the pure
- * helpers the charts and the drawer need. No DOM access here (unit-tested).
+ * pipeline under the current population, plus the pure helpers the charts and
+ * the drawer need. No DOM access here (unit-tested).
  */
 
-import { comparisonIds, scoresFor, type Analysis, type MetricSource } from '../../core/analysis';
+import { comparisonIds, scoresFor, type Analysis } from '../../core/analysis';
 import { MISSING, cellValue, isError } from '../../core/evaluate';
 import { TEXT_DEFAULT } from '../../core/schema';
 import type {
@@ -61,7 +61,6 @@ export interface TextRow {
 
 export interface FieldsModel {
   population: PopulationName;
-  source: MetricSource;
   /** Records compared (population ∩ records every pipeline was run on). */
   ids: RecordId[];
   scores: (PopulationScores | null)[];
@@ -81,9 +80,9 @@ export interface FieldsModel {
 
 const distinctSorted = (values: number[]): number[] => [...new Set(values)].sort((a, b) => a - b);
 
-export function buildModel(analysis: Analysis, population: PopulationName, source: MetricSource): FieldsModel {
+export function buildModel(analysis: Analysis, population: PopulationName): FieldsModel {
   const { schema } = analysis.experiment;
-  const scores = analysis.pipelines.map((_, i) => scoresFor(analysis, i, source, population) ?? null);
+  const scores = analysis.pipelines.map((_, i) => scoresFor(analysis, i, population) ?? null);
 
   const categories: CategoryRow[] = [];
   const fieldsByCategory = new Map<string, FieldRow[]>();
@@ -136,7 +135,6 @@ export function buildModel(analysis: Analysis, population: PopulationName, sourc
 
   return {
     population,
-    source,
     ids: comparisonIds(analysis, population),
     scores,
     categories,
@@ -193,7 +191,7 @@ export function errorBins(max: number, steps: number): ErrorBin[] {
 
 const ARROW = ' -> ';
 
-/** Split a scores.json confusion key "gold -> pred", preferring a split whose gold side is a known value. */
+/** Split a confusion key "gold -> pred", preferring a split whose gold side is a known value. */
 export function splitConfusion(key: string, known: ReadonlySet<string>): [string, string] {
   const first = key.indexOf(ARROW);
   if (first < 0) return [key, ''];
@@ -266,7 +264,7 @@ export function confusionGroups(confusion: Record<string, number> | undefined, d
 // Free text
 // ---------------------------------------------------------------------------
 
-/** evaluate.py's exact-match normalisation: whitespace collapsed, case-insensitive. */
+/** The exact-match normalisation of free text: whitespace collapsed, case-insensitive. */
 export const normalizeText = (s: string): string => s.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
 
 export interface TextMismatches {

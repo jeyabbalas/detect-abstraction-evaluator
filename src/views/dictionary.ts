@@ -10,7 +10,7 @@ import type { ViewFactory } from './types';
 const createDictionaryView: ViewFactory = ({ analysis }) => {
   const { schema } = analysis.experiment;
   const host = h('div', { class: 'dictionary-host' });
-  const rules = schema.dictionary.conditionalRules.length;
+  const rules = schema.ruleCount;
   // The dataset-level description is long; it lives in a disclosure above the table.
   const table = { ...schema.dictionary, title: schema.title, description: undefined, comment: undefined };
   const about = [schema.dictionary.description, schema.dictionary.comment].filter(Boolean).join('\n\n');
@@ -45,7 +45,10 @@ const createDictionaryView: ViewFactory = ({ analysis }) => {
           'Free-text variables (names ending in _text) are excluded from the headline metrics and reported as diagnostics only.',
         ),
         rules
-          ? withTooltip(badge(`${fmtInt(rules)} cross-field rules`, 'outline'), 'Conditional (if/then) rules the schema enforces; predictions are validated against them.')
+          ? withTooltip(
+              badge(`${fmtInt(rules)} cross-field rules`, 'outline'),
+              `Conditional (if/then) rules the schema enforces, in ${fmtInt(schema.dictionary.conditionalRules.length)} blocks; predictions and the gold standard are validated against them.`,
+            )
           : null,
         downloadBtn,
       ),

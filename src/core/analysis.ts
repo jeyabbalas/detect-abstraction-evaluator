@@ -1,26 +1,23 @@
 /**
- * Everything the views need, computed once per loaded experiment:
- * recomputed scores (checked against each scores.json), per-cell outcomes,
- * value-domain and JSON Schema problems, and (lazily) bootstrap intervals.
+ * Everything the views need, computed once per experiment and gold standard:
+ * scores, per-cell outcomes, value-domain and JSON Schema problems, and
+ * (lazily) bootstrap intervals.
  */
 
 import { runBootstrap, type BootstrapInput, type BootstrapResult } from './bootstrap';
-import {
-  MISSING,
-  Outcome,
-  cellValue,
-  compareScores,
-  evaluate,
-  isError,
-  outcomeOf,
-  populationIds,
-  type EvaluationContext,
-  type ScoreDifference,
-} from './evaluate';
-import { createValidator, validateAll, type SchemaIssue } from './validate';
-import type { Experiment, Pipeline, PopulationName, PopulationScores, RecordId, Scores } from './types';
-
-export type MetricSource = 'reported' | 'recomputed';
+import { MISSING, Outcome, cellValue, evaluate, isError, outcomeOf, populationIds, type EvaluationContext } from './evaluate';
+import { createValidator, validateAll, type SchemaIssue, type Validator } from './validate';
+import type {
+  AbstractionRecord,
+  DuplicateConsistency,
+  Experiment,
+  Pipeline,
+  PopulationName,
+  PopulationScores,
+  RecordId,
+  SchemaModel,
+  Scores,
+} from './types';
 
 export interface InvalidValue {
   rid: RecordId;
@@ -30,10 +27,8 @@ export interface InvalidValue {
 
 export interface PipelineAnalysis {
   pipeline: Pipeline;
-  /** Scores recomputed on the pipeline's own ids — the same scope as its scores.json. */
-  computed: Scores;
-  /** Recomputed vs reported differences; null when there is no scores.json. */
-  differences: ScoreDifference[] | null;
+  /** Scores on the records every pipeline was run on (`Analysis.commonIds`). */
+  scores: Scores;
   /** Per gold record: categorical outcome codes, in schema.categoricalFields order. */
   outcomes: Map<RecordId, Uint8Array>;
   /** Per scored record: number of categorical errors. */
@@ -54,14 +49,24 @@ export interface Analysis {
   commonIds: RecordId[];
   /** True when all pipelines were run on the same records. */
   sameIds: boolean;
-  /** Scores of every pipeline on `commonIds` (identical to `computed` when sameIds). */
-  commonScores: Scores[];
-  /** True when every pipeline has a scores.json that matches its recomputation. */
-  allReportedMatch: boolean;
-  /** Source to show by default. */
-  defaultSource: MetricSource;
   goldSchemaIssues: Map<RecordId, SchemaIssue[]> | null;
   validatorError: string | null;
+}
+
+// Validation does not depend on the gold standard: switching it reuses these.
+const validators = new WeakMap<SchemaModel, Validator | { error: string }>();
+const validated = new WeakMap<Map<RecordId, AbstractionRecord>, Map<RecordId, SchemaIssue[]>>();
+
+function validatorFor(schema: SchemaModel): Validator | { error: string } {
+  let v = validators.get(schema);
+  if (!v) validators.set(schema, (v = createValidator(schema)));
+  return v;
+}
+
+function issuesOf(validator: Validator, records: Map<RecordId, AbstractionRecord>): Map<RecordId, SchemaIssue[]> {
+  let issues = validated.get(records);
+  if (!issues) validated.set(records, (issues = validateAll(validator, records)));
+  return issues;
 }
 
 export function analyze(experiment: Experiment): Analysis {
@@ -77,13 +82,14 @@ export function analyze(experiment: Experiment): Analysis {
   const defaults = fields.map((f) => schema.byName.get(f)!.defaultLabel);
   const domains = fields.map((f) => new Set(schema.byName.get(f)!.domain));
 
-  const validator = createValidator(schema);
+  const validator = validatorFor(schema);
   const validatorError = 'error' in validator ? validator.error : null;
-  const canValidate = !('error' in validator);
+
+  const idSets = experiment.pipelines.map((p) => new Set(p.ids));
+  const commonIds = experiment.goldIds.filter((rid) => idSets.every((s) => s.has(rid)));
+  const sameIds = idSets.every((s) => s.size === commonIds.length);
 
   const pipelines: PipelineAnalysis[] = experiment.pipelines.map((pipeline) => {
-    const computed = evaluate(ctx, pipeline.predictions, pipeline.ids);
-    const differences = pipeline.reportedScores ? compareScores(pipeline.reportedScores, computed) : null;
     const scored = new Set(pipeline.ids);
     const outcomes = new Map<RecordId, Uint8Array>();
     const errorCount = new Map<RecordId, number>();
@@ -106,22 +112,14 @@ export function analyze(experiment: Experiment): Analysis {
     }
     return {
       pipeline,
-      computed,
-      differences,
+      scores: evaluate(ctx, pipeline.predictions, commonIds),
       outcomes,
       errorCount,
       missing: pipeline.ids.filter((rid) => !pipeline.predictions.has(rid)),
       invalid,
-      schemaIssues: canValidate ? validateAll(validator, pipeline.predictions) : null,
+      schemaIssues: 'error' in validator ? null : issuesOf(validator, pipeline.predictions),
     };
   });
-
-  const idSets = experiment.pipelines.map((p) => new Set(p.ids));
-  const commonIds = experiment.goldIds.filter((rid) => idSets.every((s) => s.has(rid)));
-  const sameIds = idSets.every((s) => s.size === commonIds.length);
-  const commonScores = pipelines.map((pa) => (sameIds ? pa.computed : evaluate(ctx, pa.pipeline.predictions, commonIds)));
-  const allReportedMatch = pipelines.every((pa) => pa.differences !== null && pa.differences.length === 0);
-  const allReported = pipelines.every((pa) => pa.pipeline.reportedScores !== null);
 
   return {
     experiment,
@@ -129,10 +127,7 @@ export function analyze(experiment: Experiment): Analysis {
     pipelines,
     commonIds,
     sameIds,
-    commonScores,
-    allReportedMatch,
-    defaultSource: allReported && sameIds ? 'reported' : 'recomputed',
-    goldSchemaIssues: canValidate ? validateAll(validator, experiment.gold) : null,
+    goldSchemaIssues: 'error' in validator ? null : issuesOf(validator, experiment.gold),
     validatorError,
   };
 }
@@ -142,24 +137,13 @@ export function comparisonIds(analysis: Analysis, population: PopulationName): R
   return populationIds(analysis.ctx, population, new Set(analysis.commonIds));
 }
 
-/** The population scores to display for a pipeline under a metric source. */
-export function scoresFor(
-  analysis: Analysis,
-  index: number,
-  source: MetricSource,
-  population: PopulationName,
-): PopulationScores | undefined {
-  const pa = analysis.pipelines[index]!;
-  if (source === 'reported' && pa.pipeline.reportedScores?.[population]) return pa.pipeline.reportedScores[population];
-  return analysis.commonScores[index]?.[population];
+/** A pipeline's scores for a population (on the records every pipeline was run on). */
+export function scoresFor(analysis: Analysis, index: number, population: PopulationName): PopulationScores | undefined {
+  return analysis.pipelines[index]?.scores[population];
 }
 
-export function duplicateConsistencyFor(analysis: Analysis, index: number, source: MetricSource) {
-  const pa = analysis.pipelines[index]!;
-  if (source === 'reported' && pa.pipeline.reportedScores?.duplicate_consistency) {
-    return pa.pipeline.reportedScores.duplicate_consistency;
-  }
-  return analysis.commonScores[index]?.duplicate_consistency ?? null;
+export function duplicateConsistencyFor(analysis: Analysis, index: number): DuplicateConsistency | null {
+  return analysis.pipelines[index]?.scores.duplicate_consistency ?? null;
 }
 
 // ---------------------------------------------------------------------------

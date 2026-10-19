@@ -1,8 +1,8 @@
 /**
  * Records: one record at a time — the pathology report beside every
  * abstracted value (gold standard vs. each pipeline), the free-text values
- * highlighted in the report, an error map to jump between records, and the
- * pipeline traces. The error-analysis workhorse: keyboard navigation (← → / j k,
+ * highlighted in the report, an error map to jump between records, and each
+ * pipeline's record file with its model trace. The error-analysis workhorse: keyboard navigation (← → / j k,
  * Home/End), filters, and links between highlights and variables.
  */
 
@@ -40,7 +40,7 @@ import {
   type FilterKey,
 } from './records/model';
 import { highlightReport, markTooltip, type Highlighted } from './records/report';
-import { buildVariablesTable, issuesBlock, summaryBlock, type VariablesTable } from './records/table';
+import { buildVariablesTable, issuesBlock, notesBlock, summaryBlock, type VariablesTable } from './records/table';
 import { TraceCache, traceView } from './records/trace';
 import { breakable, delegateTooltips, flash, prefs, revealIn, swatch } from './records/ui';
 import { POPULATION_HELP } from './shared';
@@ -119,7 +119,7 @@ const createRecordsView: ViewFactory = (ctx) => {
   };
   const recordExists = (rid: RecordId) =>
     exp.gold.has(rid) || exp.reports.has(rid) || pipes.some((pa) => pa.pipeline.predictions.has(rid));
-  const traceable = (rid: RecordId) => shownIdx().filter((i) => pipes[i]!.pipeline.traceFiles.has(rid));
+  const traceable = (rid: RecordId) => shownIdx().filter((i) => pipes[i]!.pipeline.recordFiles.has(rid));
   const effectiveTab = (rid: RecordId): Tab => (st.tab === 'trace' && traceable(rid).length ? 'trace' : 'vars');
 
   function effectiveSource(rid: RecordId): Source {
@@ -731,6 +731,7 @@ const createRecordsView: ViewFactory = (ctx) => {
       { class: 'rec-vars-view' },
       summaryBlock(analysis, rid, shown, short),
       issuesBlock(analysis, rid, shown, short),
+      notesBlock(analysis, rid, shown, short),
       table.el,
     );
     renderSideHead(rid);
@@ -747,7 +748,7 @@ const createRecordsView: ViewFactory = (ctx) => {
           value: tab,
           options: [
             { value: 'vars', label: 'Variables' },
-            { value: 'trace', label: ['Trace', h('span', { class: 'count' }, fmtInt(avail.length))], title: 'Pipeline traces of this record' },
+            { value: 'trace', label: ['Trace', h('span', { class: 'count' }, fmtInt(avail.length))], title: 'Each pipeline’s model trace of this record (records/<record_id>.json)' },
           ],
           onChange: (t) => {
             st.tab = t;
@@ -815,7 +816,7 @@ const createRecordsView: ViewFactory = (ctx) => {
       h(
         'div',
         { class: 'rec-trace' },
-        h('div', { class: 'rec-trace-head' }, picker.el, h('code', { class: 'rec-trace-file' }, `${pipeline.name}/traces/${rid}.json`)),
+        h('div', { class: 'rec-trace-head' }, picker.el, h('code', { class: 'rec-trace-file' }, `${pipeline.name}/records/${rid}.json`)),
         content,
       ),
     );
@@ -827,7 +828,7 @@ const createRecordsView: ViewFactory = (ctx) => {
           content,
           trace
             ? traceView(trace)
-            : emptyState({ icon: 'alert', title: 'The trace could not be read', body: `abstractions/${pipeline.name}/traces/${rid}.json is not valid JSON.` }),
+            : emptyState({ icon: 'alert', title: 'The trace could not be read', body: `abstractions/${pipeline.name}/records/${rid}.json is not a valid JSON object.` }),
         );
       },
       (err: unknown) => {

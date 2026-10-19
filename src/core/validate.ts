@@ -1,8 +1,8 @@
 /**
- * JSON Schema validation of abstraction records (gold and predictions), the
- * browser counterpart of schema.py's `full_errors`: each record is validated as
- * a one-element array against the root schema, and errors raised inside an
- * `if/then` conditional carry that rule's `$comment`.
+ * JSON Schema validation of abstraction records (gold and predictions): each
+ * record is validated against the root (record) schema, and errors raised
+ * inside an `if/then` cross-field rule carry that rule's number (`x-rule`) and
+ * `$comment`.
  */
 
 import Ajv2020 from 'ajv/dist/2020';
@@ -13,7 +13,7 @@ export interface SchemaIssue {
   /** Variable the issue is about (empty for record-level issues). */
   field: string;
   message: string;
-  /** The conditional rule's `$comment`, when the error comes from one. */
+  /** The cross-field rule the error comes from ("Rule 8: …", from its `x-rule` and `$comment`). */
   rule?: string;
   keyword: string;
 }
@@ -32,25 +32,28 @@ function pointerParts(pointer: string): string[] {
     .map((p) => decodeURIComponent(p).replace(/~1/g, '/').replace(/~0/g, '~'));
 }
 
-/** The `$comment` of the nearest enclosing if/then node along a schema path. */
-function ruleComment(root: Obj, schemaPath: string): string | undefined {
+/** "Rule 8: <$comment>" for an if/then node (either part may be absent). */
+function ruleLabel(o: Obj): string | undefined {
+  const n = typeof o['x-rule'] === 'number' || typeof o['x-rule'] === 'string' ? `Rule ${o['x-rule']}` : '';
+  const comment = typeof o.$comment === 'string' ? o.$comment : '';
+  return n && comment ? `${n}: ${comment}` : n || comment || undefined;
+}
+
+/** The label of the nearest enclosing if/then node along a schema path. */
+function ruleOf(root: Obj, schemaPath: string): string | undefined {
   let node: unknown = root;
   let rule: string | undefined;
   for (const step of pointerParts(schemaPath)) {
     if (!node || typeof node !== 'object') return rule;
     node = (node as Obj)[step];
-    if (node && typeof node === 'object' && !Array.isArray(node)) {
-      const o = node as Obj;
-      if ('if' in o && typeof o.$comment === 'string') rule = o.$comment;
-    }
+    if (node && typeof node === 'object' && !Array.isArray(node) && 'if' in node) rule = ruleLabel(node as Obj) ?? rule;
   }
   return rule;
 }
 
 const fieldOf = (e: ErrorObject): string => {
-  // instancePath is /0/<field>/... because records are validated as [record].
-  const parts = e.instancePath.split('/').slice(2);
-  return parts[0] ? decodeURIComponent(parts[0]).replace(/~1/g, '/').replace(/~0/g, '~') : '';
+  const first = e.instancePath.split('/')[1];
+  return first ? decodeURIComponent(first).replace(/~1/g, '/').replace(/~0/g, '~') : '';
 };
 
 function describe(e: ErrorObject, record: AbstractionRecord, field: string): string {
@@ -102,7 +105,7 @@ export function createValidator(schema: SchemaModel): Validator | { error: strin
 
   return {
     validate(record: AbstractionRecord): SchemaIssue[] {
-      if (validateFn([record])) return [];
+      if (validateFn(record)) return [];
       const errors = validateFn.errors ?? [];
       // oneOf-of-consts failures arrive as one const error per branch plus a oneOf
       // error; report a single "not an allowed value" for that variable instead.
@@ -117,7 +120,7 @@ export function createValidator(schema: SchemaModel): Validator | { error: strin
           e.keyword === 'oneOf'
             ? `${field} is ${JSON.stringify(record[field])}, which is not one of its allowed values`
             : describe(e, record, field);
-        const rule = ruleComment(root, e.schemaPath);
+        const rule = ruleOf(root, e.schemaPath);
         const key = `${message}|${rule ?? ''}`;
         if (seen.has(key)) continue;
         seen.add(key);

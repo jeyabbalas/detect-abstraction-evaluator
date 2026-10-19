@@ -1,6 +1,6 @@
 /** Application state, hash routing and theme preference. */
 
-import type { Analysis, MetricSource } from './core/analysis';
+import type { Analysis } from './core/analysis';
 import type { PopulationName } from './core/types';
 import { currentMode, type Mode } from './ui/palette';
 
@@ -18,7 +18,6 @@ export interface Route {
 export interface State {
   analysis: Analysis | null;
   population: PopulationName;
-  source: MetricSource;
   theme: ThemePref;
   /** Resolved color mode (theme preference + OS setting). */
   mode: Mode;

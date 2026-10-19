@@ -1,11 +1,6 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { analyze } from '../src/core/analysis';
 import { MISSING } from '../src/core/evaluate';
-import { loadExperiment } from '../src/core/load';
-import { rerootFiles } from '../src/core/vfs';
-import type { VirtualFile } from '../src/core/types';
 import { errorFill, errorRamp } from '../src/ui/palette';
 import {
   buildModel,
@@ -20,6 +15,7 @@ import {
   textMismatches,
   truncateToWidth,
 } from '../src/views/fields/model';
+import { EXAMPLE_NAME, hasExample, loadExample } from './helpers';
 
 describe('fields view helpers', () => {
   it('bins error counts exactly as errorFill shades them', () => {
@@ -85,26 +81,15 @@ describe('fields view helpers', () => {
   });
 });
 
-const EXAMPLE = join(__dirname, '..', 'examples', 'experiment_1');
-
-function readTree(dir: string, base = dir): VirtualFile[] {
-  const out: VirtualFile[] = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...readTree(full, base));
-    else out.push({ path: ['experiment_1', ...relative(base, full).split(sep)].join('/'), blob: new Blob([readFileSync(full)]) });
-  }
-  return out;
-}
-
-describe.skipIf(!existsSync(EXAMPLE))('fields model on examples/experiment_1', () => {
-  it('matches the reported scores and finds the records behind every confusion', async () => {
-    const analysis = analyze(await loadExperiment(rerootFiles(readTree(EXAMPLE), 'experiment_1')));
+describe.skipIf(!hasExample)(`fields model on examples/${EXAMPLE_NAME}`, () => {
+  it('follows the scores and finds the records behind every confusion', async () => {
+    const analysis = analyze(await loadExample());
     const { schema } = analysis.experiment;
     for (const population of ['unique', 'all'] as const) {
-      const model = buildModel(analysis, population, 'reported');
-      const reported = analysis.pipelines[0]!.pipeline.reportedScores![population]!;
-      expect(model.categories.map((r) => r.category.key)).toEqual(Object.keys(reported.per_category));
+      const model = buildModel(analysis, population);
+      const scores = analysis.pipelines[0]!.scores[population]!;
+      expect(model.categories.map((r) => r.category.key)).toEqual(Object.keys(scores.per_category));
+      expect(model.categories.map((r) => r.category.key)).toEqual(schema.categories.filter((c) => c.categorical.length).map((c) => c.key));
       expect(model.fieldByName.size).toBe(schema.categoricalFields.length);
       expect(model.text.map((r) => r.field.name)).toEqual(schema.textFields);
 

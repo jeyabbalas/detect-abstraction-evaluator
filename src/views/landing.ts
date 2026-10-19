@@ -1,7 +1,7 @@
 /** Upload screen: pick or drop an experiment folder (or a .zip of it). */
 
 import { analyze, type Analysis } from '../core/analysis';
-import { LoadError, loadExperiment } from '../core/load';
+import { LoadError, MissingGoldError, loadExperiment } from '../core/load';
 import { SchemaError } from '../core/schema';
 import { fromDataTransfer, fromFileList, rerootFiles, type FileSet } from '../core/vfs';
 import { callout } from '../ui/components';
@@ -10,18 +10,23 @@ import { icon } from '../ui/icons';
 
 const TREE: [string, string][] = [
   ['experiment/', ''],
-  ['├── data_dictionary/', 'JSON Schema of the abstraction (*.json)'],
-  ['├── gold_standard/', 'gold-standard records, one JSON array'],
+  ['├── data_dictionary/', 'JSON Schema of one record (*.json)'],
+  ['├── gold_standard/', 'one or more gold standards (JSON arrays)'],
   ['├── pathology_reports/', '<record_id>.txt, one report per record'],
   ['└── abstractions/', ''],
-  ['    └── <pipeline>/', 'run.json · predictions.json · scores.json · traces/'],
+  ['    └── <pipeline>/', 'config.json · summary.json · predictions.json · records/'],
 ];
+
+const EXAMPLE = 'new_experiment_1';
 
 export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis) => void): { destroy(): void } {
   const status = h('div', { class: 'landing-status', 'aria-live': 'polite' });
 
   const folderInput = h('input', { type: 'file', class: 'visually-hidden', webkitdirectory: true, multiple: true, tabIndex: -1 });
   const zipInput = h('input', { type: 'file', class: 'visually-hidden', accept: '.zip,application/zip', tabIndex: -1 });
+  const goldInput = h('input', { type: 'file', class: 'visually-hidden', accept: '.json,application/json', tabIndex: -1 });
+  /** The last folder read, kept so a gold standard can be added to it. */
+  let lastSet: FileSet | null = null;
   folderInput.addEventListener('change', () => {
     if (folderInput.files?.length) void run(() => fromFileList(folderInput.files!));
     folderInput.value = '';
@@ -29,6 +34,15 @@ export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis)
   zipInput.addEventListener('change', () => {
     if (zipInput.files?.length) void run(() => fromFileList(zipInput.files!));
     zipInput.value = '';
+  });
+  goldInput.addEventListener('change', () => {
+    const file = goldInput.files?.[0];
+    goldInput.value = '';
+    const set = lastSet;
+    if (file && set) {
+      const files = [...set.files.filter((f) => !f.path.startsWith('gold_standard/')), { path: `gold_standard/${file.name}`, blob: file as Blob }];
+      void run(async () => ({ name: set.name, files }));
+    }
   });
 
   const chooseFolder = h('button', { type: 'button', class: 'btn btn-primary btn-lg', onclick: () => folderInput.click() }, icon('folderOpen'), 'Choose folder');
@@ -43,6 +57,7 @@ export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis)
     h('div', { class: 'dropzone-actions' }, chooseFolder, chooseZip),
     folderInput,
     zipInput,
+    goldInput,
   );
 
   let depth = 0;
@@ -91,6 +106,7 @@ export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis)
       setStage('Reading files…');
       const set = await collect();
       if (!set.files.length) throw new LoadError('No files found. Choose the experiment folder itself (the one that contains abstractions/).');
+      lastSet = set;
       const experiment = await loadExperiment(set, (p) => setStage(`${p.stage}…`));
       setStage('Scoring pipelines…');
       await new Promise((r) => setTimeout(r, 0));
@@ -99,6 +115,17 @@ export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis)
       onLoaded(analysis);
     } catch (err) {
       console.error(err);
+      if (err instanceof MissingGoldError) {
+        render(
+          status,
+          callout('warning', [
+            h('strong', null, 'This folder has no gold standard.'),
+            h('div', null, 'Metrics need one: choose a gold-standard file (a JSON array of records), or add it to the folder under gold_standard/.'),
+            h('div', { class: 'landing-actions' }, h('button', { type: 'button', class: 'btn btn-sm btn-primary', onclick: () => goldInput.click() }, icon('upload'), 'Choose gold-standard file')),
+          ]),
+        );
+        return;
+      }
       const known = err instanceof LoadError || err instanceof SchemaError;
       render(
         status,
@@ -125,11 +152,11 @@ export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis)
               const files = await Promise.all(
                 list.map(async (path) => ({ path, blob: await (await fetch(`/__examples/file/${path.split('/').map(encodeURIComponent).join('/')}`)).blob() })),
               );
-              return rerootFiles(files, 'experiment_1');
+              return rerootFiles(files, EXAMPLE);
             }),
         },
         icon('sparkle'),
-        'Load local example (dev server only)',
+        `Load examples/${EXAMPLE} (dev server only)`,
       )
     : null;
 
@@ -146,7 +173,7 @@ export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis)
         h(
           'p',
           null,
-          'Load an experiment folder to compare LLM abstraction pipelines against the gold standard: headline metrics with confidence intervals, where the errors are, and every report side by side with what each pipeline extracted.',
+          'Load an experiment folder to compare LLM abstraction pipelines against a gold standard: headline metrics with confidence intervals, where the errors are, and every report side by side with what each pipeline extracted. Switch gold standards at any time to re-score.',
         ),
       ),
       drop,
@@ -176,7 +203,7 @@ export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis)
           h(
             'p',
             { class: 'muted', style: { marginTop: '8px' } },
-            'Metrics are recomputed in the browser and checked against each scores.json; free-text (*_text) variables are excluded from the headline metrics.',
+            'Every metric is computed in the browser from the predictions and the gold standard; free-text (*_text) variables are excluded from the headline metrics.',
           ),
         ),
       ),

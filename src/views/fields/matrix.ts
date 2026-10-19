@@ -15,7 +15,7 @@ import { h, type Child } from '../../ui/dom';
 import { fmtInt, fmtMetric, plural } from '../../ui/format';
 import { icon } from '../../ui/icons';
 import { chrome, errorFill, inkOn, type Mode } from '../../ui/palette';
-import { runCost } from '../shared';
+import { pipelineDetail } from '../shared';
 import { addRowHits, bindTargets, fitText, neutralFill, rampLegend, tagMarks, textWidth } from './kit';
 import { goldInformative, goldLabel, splitConfusion, type CategoryCell, type CategoryRow, type FieldCell, type FieldRow, type FieldsModel } from './model';
 
@@ -126,8 +126,7 @@ function headerSvg(g: MatrixGeom, mode: Mode, goldTitle: string): Element {
 
 function pipeTip(analysis: Analysis, col: PipeColumn): Child {
   const pa = analysis.pipelines[col.pipe]!;
-  const cost = runCost(pa.pipeline);
-  const detail = [cost.strategy, cost.model].filter(Boolean).join(' · ');
+  const detail = pipelineDetail(pa.pipeline);
   return h('div', null, h('div', { class: 'tt-title' }, pipelineLabel(pa.pipeline)), detail ? h('div', { class: 'tt-muted' }, detail) : null);
 }
 
@@ -497,7 +496,7 @@ function fieldCellTip(analysis: Analysis, row: FieldRow, cell: FieldCell): Child
   const p = analysis.pipelines[cell.pipe]!.pipeline;
   const fs: FieldScore | null = cell.score;
   const head = [
-    ['Variable', h('code', null, row.field.name)],
+    ...(row.field.title !== row.field.name ? [['Variable', h('code', null, row.field.name)]] : []),
     ['Pipeline', pipelineLabel(p)],
   ] as [Child, Child][];
   if (!fs) return tooltipBody(row.field.title, head, 'No scores for this population.');
@@ -520,7 +519,7 @@ function fieldRowTip(analysis: Analysis, row: FieldRow): Child {
   return tooltipBody(
     row.field.title,
     [
-      ['Variable', h('code', null, row.field.name)],
+      ...(row.field.title !== row.field.name ? ([['Variable', h('code', null, row.field.name)]] as [Child, Child][]) : []),
       ['Category', row.category.title],
       ['Informative gold values', n === null ? goldLabel(row.gold, fmtInt) : `${goldLabel(row.gold, fmtInt)} of ${fmtInt(n)}`],
       ...row.cells.map((c): [Child, Child] => [pipelineLabel(analysis.pipelines[c.pipe]!.pipeline), c.score ? plural(c.errors, 'error') : '—']),
@@ -531,6 +530,8 @@ function fieldRowTip(analysis: Analysis, row: FieldRow): Child {
 
 export function variableTable(analysis: Analysis, model: FieldsModel, onlyErrors: boolean, onField: (name: string) => void): TableView {
   const rows = [...model.fieldByName.values()].filter((r) => !onlyErrors || r.errors > 0);
+  // Schemas without property titles name each variable once.
+  const titled = rows.some((r) => r.field.title !== r.field.name);
   const t = dataTable<FieldRow>(
     [
       { key: 'category', label: 'Category', value: (r) => r.category.title },
@@ -541,7 +542,7 @@ export function variableTable(analysis: Analysis, model: FieldsModel, onlyErrors
         cell: (r) =>
           h('button', { type: 'button', class: 'fx-link', title: `${r.field.title} — open details`, onclick: () => onField(r.field.name) }, r.field.name),
       },
-      { key: 'title', label: 'Title', value: (r) => r.field.title, className: () => 'muted' },
+      ...(titled ? [{ key: 'title', label: 'Title', value: (r: FieldRow) => r.field.title, className: () => 'muted' }] : []),
       { key: 'gold', label: 'Gold', numeric: true, value: (r) => r.gold[0] ?? null, cell: (r) => goldLabel(r.gold, fmtInt) },
       ...analysis.pipelines.map(
         (pa, pipe): Column<FieldRow> => ({

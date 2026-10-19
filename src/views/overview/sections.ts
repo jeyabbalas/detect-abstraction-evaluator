@@ -61,14 +61,14 @@ function valueCell(row: ConfigRow, value: unknown, hasRun: boolean): HTMLElement
       : v.kind === 'null'
         ? h('code', { class: 'muted' }, v.text)
         : v.kind === 'missing'
-          ? h('span', { class: 'muted', title: 'Not in this run.json' }, v.text)
+          ? h('span', { class: 'muted', title: 'Not in this pipeline’s config.json or summary.json' }, v.text)
           : v.text;
   return h('td', { class: ['ov-val', (v.kind === 'number' || v.kind === 'duration') && 'ov-numval'], title: v.title }, content);
 }
 
 export function runConfigSection(analysis: Analysis): HTMLElement {
   const pipelines = analysis.pipelines.map((pa) => pa.pipeline);
-  const hasRun = pipelines.map((p) => p.run !== null);
+  const hasRun = pipelines.map((p) => p.config !== null || p.summary !== null);
   const runs = hasRun.filter(Boolean).length;
   const rows = runConfigRows(pipelines);
   const differing = rows.filter((r) => r.differs).length;
@@ -78,12 +78,12 @@ export function runConfigSection(analysis: Analysis): HTMLElement {
   const body = h('div', { class: 'ov-config-body' });
   const subtitle =
     runs === 0
-      ? 'No pipeline has a run.json, so settings and cost are unknown.'
+      ? 'No pipeline has a config.json or summary.json, so its settings and usage are unknown.'
       : canFilter
-        ? `From each pipeline’s run.json. ${fmtInt(differing)} of ${plural(rows.length, 'setting')} ${differing === 1 ? 'differs' : 'differ'} across pipelines; they are listed first.`
+        ? `From each pipeline’s config.json and summary.json. ${fmtInt(differing)} of ${plural(rows.length, 'setting')} ${differing === 1 ? 'differs' : 'differ'} across pipelines; they are listed first.`
         : pipelines.length > 1
-          ? 'Only one pipeline has a run.json; the others show —.'
-          : 'From the pipeline’s run.json.';
+          ? 'Only one pipeline has a config.json or summary.json; the others show —.'
+          : 'From the pipeline’s config.json and summary.json.';
 
   const checkbox = h('input', { type: 'checkbox', checked: only });
   checkbox.addEventListener('change', () => {
@@ -101,7 +101,7 @@ export function runConfigSection(analysis: Analysis): HTMLElement {
 
   function draw() {
     if (!runs) {
-      render(body, h('div', { class: 'empty' }, icon('info'), h('strong', null, 'No run.json found'), h('div', null, 'Add run.json to a pipeline folder to compare settings, usage and cost.')));
+      render(body, h('div', { class: 'empty' }, icon('info'), h('strong', null, 'No config.json or summary.json found'), h('div', null, 'They are written next to predictions.json by the pipeline; add them to compare settings and usage.')));
       return;
     }
     const shown = only ? rows.filter((r) => r.differs) : rows;
@@ -120,7 +120,7 @@ export function runConfigSection(analysis: Analysis): HTMLElement {
           'tr',
           null,
           h('th', { scope: 'col', class: 'ov-config-key' }, 'Setting'),
-          pipelines.map((p, i) => h('th', { scope: 'col' }, pipelineLabel(p), hasRun[i] ? null : h('span', { class: 'ov-norun' }, 'no run.json'))),
+          pipelines.map((p, i) => h('th', { scope: 'col' }, pipelineLabel(p), hasRun[i] ? null : h('span', { class: 'ov-norun' }, 'no config.json'))),
         ),
       ),
       CONFIG_GROUPS.map(({ key, label }) => {
@@ -167,6 +167,10 @@ export function methodsSection(analysis: Analysis): HTMLElement {
           : '',
         'Missing or invalid predictions are scored as wrong, never dropped.',
       ],
+    ],
+    [
+      'Gold standard',
+      `Every metric is computed in the browser from each pipeline’s predictions.json and the gold standard in use (${analysis.experiment.goldFileName}); switch it from the header to re-score. A pipeline is scored on its records that are in the gold standard, and pipelines are compared on the records every one of them was run on.`,
     ],
     [
       'Default labels',

@@ -5,7 +5,7 @@
  */
 
 import { nice, tickStep, ticks } from 'd3';
-import { comparisonIds, duplicateConsistencyFor, scoresFor, type Analysis, type MetricSource } from '../../core/analysis';
+import { comparisonIds, duplicateConsistencyFor, scoresFor, type Analysis } from '../../core/analysis';
 import type { BootstrapResult, MetricKey, PairInterval } from '../../core/bootstrap';
 import type { DuplicateConsistency, IssueLevel, Pipeline, PopulationName, ScoreSummary } from '../../core/types';
 import { fmtDuration, fmtInt, plural } from '../../ui/format';
@@ -41,7 +41,8 @@ export interface PipelineRow {
 
 export interface Snapshot {
   population: PopulationName;
-  source: MetricSource;
+  /** The gold standard in use (its file name). */
+  gold: string;
   /** Whether every pipeline was run on the same records. */
   sameIds: boolean;
   /** By pipeline position. */
@@ -53,10 +54,10 @@ export interface Snapshot {
   n: number;
 }
 
-export function buildSnapshot(analysis: Analysis, source: MetricSource, population: PopulationName): Snapshot {
+export function buildSnapshot(analysis: Analysis, population: PopulationName): Snapshot {
   const ids = comparisonIds(analysis, population);
   const rows: PipelineRow[] = analysis.pipelines.map((pa, pos) => {
-    const scores = scoresFor(analysis, pos, source, population);
+    const scores = scoresFor(analysis, pos, population);
     const errorFree = errorFreeRate(pa, ids);
     return {
       pos,
@@ -66,24 +67,24 @@ export function buildSnapshot(analysis: Analysis, source: MetricSource, populati
       errorFree,
       errorFreeCount: errorFree === null ? 0 : Math.round(errorFree * ids.length),
       n: ids.length,
-      dup: duplicateConsistencyFor(analysis, pos, source),
+      dup: duplicateConsistencyFor(analysis, pos),
       cost: runCost(pa.pipeline),
     };
   });
   const { order, rank } = rankRows(rows);
-  return { population, source, sameIds: analysis.sameIds, rows, order, rank, n: ids.length };
+  return { population, gold: analysis.experiment.goldFileName, sameIds: analysis.sameIds, rows, order, rank, n: ids.length };
 }
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-/** A headline metric's value from the displayed scores (error-free from the outcomes). */
+/** A headline metric's value from the scores (error-free from the outcomes). */
 export function metricValue(row: PipelineRow, key: MetricKey): number | null {
   if (key === 'error_free_rate') return row.errorFree;
   const v = row.summary?.[key];
   return finite(v) ? v : null;
 }
 
-/** Point estimate: the displayed score, else the bootstrap estimate. */
+/** Point estimate: the score, else the bootstrap estimate. */
 export function pointEstimate(row: PipelineRow, key: MetricKey, boot: BootstrapResult | null): number | null {
   return metricValue(row, key) ?? boot?.intervals[row.pos]?.[key]?.estimate ?? null;
 }
@@ -203,13 +204,13 @@ export function durationUnit(maxSeconds: number): { div: number; label: string }
 
 // ------------------------------------------------------------------ costs
 
-export type CostKey = 'tokens' | 'calls' | 'wall' | 'thinking';
+export type CostKey = 'tokens' | 'completion' | 'calls' | 'time';
 
 export const COST_META: Record<CostKey, { label: string; short: string; title: string; value: (c: RunCost) => number | null }> = {
-  tokens: { label: 'Total tokens', short: 'Tokens', title: 'Total tokens (prompt + output)', value: (c) => c.totalTokens },
-  calls: { label: 'LLM calls', short: 'Calls', title: 'LLM calls', value: (c) => c.calls },
-  wall: { label: 'Wall-clock time', short: 'Time', title: 'Wall-clock time of the run', value: (c) => c.wallSeconds },
-  thinking: { label: 'Thinking tokens', short: 'Thinking', title: 'Thinking (reasoning) tokens', value: (c) => c.thoughtTokens },
+  tokens: { label: 'Total tokens', short: 'Tokens', title: 'Total tokens (prompt + completion)', value: (c) => c.totalTokens },
+  completion: { label: 'Completion tokens', short: 'Completion', title: 'Completion tokens (reasoning included)', value: (c) => c.completionTokens },
+  calls: { label: 'LLM calls', short: 'Calls', title: 'LLM calls, repair rounds included', value: (c) => c.calls },
+  time: { label: 'Model time', short: 'Time', title: 'Summed model-call time', value: (c) => c.modelSeconds },
 };
 
 /** Cost measures at least one pipeline reports, in menu order. */
@@ -258,18 +259,19 @@ export function pairRows(boot: BootstrapResult, metric: MetricKey): PairRow[] {
 
 // --------------------------------------------------------- run configuration
 
-export type ConfigGroup = 'pipeline' | 'settings' | 'usage';
+export type ConfigGroup = 'run' | 'settings' | 'usage' | 'log';
 
 export const CONFIG_GROUPS: { key: ConfigGroup; label: string }[] = [
-  { key: 'pipeline', label: 'Run' },
-  { key: 'settings', label: 'Settings' },
+  { key: 'run', label: 'Run' },
+  { key: 'settings', label: 'Client settings' },
   { key: 'usage', label: 'Usage' },
+  { key: 'log', label: 'Run log' },
 ];
 
 export interface ConfigRow {
   group: ConfigGroup;
   key: string;
-  /** One value per pipeline; undefined = absent (or no run.json). */
+  /** One value per pipeline; undefined = absent (or neither config.json nor summary.json). */
   values: unknown[];
   differs: boolean;
 }
@@ -286,21 +288,28 @@ export function flattenLeaves(value: unknown, prefix = '', out = new Map<string,
   return out;
 }
 
-const RUN_FIRST = ['strategy', 'records run', 'wall_seconds', 'failures'];
+const RUN_FIRST = ['pipeline', 'model'];
+/** summary.json keys shown elsewhere: its copy of the config and the per-record notes. */
+const SUMMARY_SKIP = new Set(['config', 'issues']);
+const LOG_KEYS = new Set(['records_with', 'failures', 'unreadable_records']);
 
+/** config.json and summary.json of a pipeline as grouped leaves. */
 function flattenRun(p: Pipeline): Record<ConfigGroup, Map<string, unknown>> {
-  const out: Record<ConfigGroup, Map<string, unknown>> = { pipeline: new Map(), settings: new Map(), usage: new Map() };
-  const run = p.run ?? {};
-  out.pipeline.set('records run', Array.isArray(run.ids) ? run.ids.length : p.ids.length);
-  for (const [k, v] of Object.entries(run)) {
-    if (k === 'ids') continue;
-    if (k === 'settings' && isRecord(v)) flattenLeaves(v, '', out.settings);
-    else if (k === 'usage' && isRecord(v)) flattenLeaves(v, '', out.usage);
-    else if (k === 'failures' && isRecord(v)) out.pipeline.set('failures', Object.keys(v).length);
-    else flattenLeaves(v, k, out.pipeline);
+  const out: Record<ConfigGroup, Map<string, unknown>> = { run: new Map(), settings: new Map(), usage: new Map(), log: new Map() };
+  for (const [k, v] of Object.entries(p.config ?? {})) {
+    if (k === 'client_settings' && isRecord(v)) flattenLeaves(v, '', out.settings);
+    else flattenLeaves(v, k, out.run);
+  }
+  for (const [k, v] of Object.entries(p.summary ?? {})) {
+    if (SUMMARY_SKIP.has(k)) continue;
+    if (!LOG_KEYS.has(k)) flattenLeaves(v, k, out.usage);
+    else if (k === 'records_with' && isRecord(v)) flattenLeaves(v, 'records_with', out.log);
+    else out.log.set(k, Array.isArray(v) ? v.length : isRecord(v) ? Object.keys(v).length : v);
   }
   return out;
 }
+
+const hasRun = (p: Pipeline) => p.config !== null || p.summary !== null;
 
 /** JSON with sorted keys, so equal values compare equal. */
 export function stableStringify(v: unknown): string {
@@ -316,12 +325,12 @@ export function stableStringify(v: unknown): string {
 }
 
 /**
- * Rows of the run-configuration table: run.json leaves per pipeline, grouped,
- * with rows that differ across pipelines first within each group. Pipelines
- * without a run.json neither contribute keys nor count as differing.
+ * Rows of the run-configuration table: config.json and summary.json leaves per
+ * pipeline, grouped, with rows that differ across pipelines first within each
+ * group. Pipelines with neither file contribute no keys and never differ.
  */
 export function runConfigRows(pipelines: readonly Pipeline[]): ConfigRow[] {
-  const flat = pipelines.map((p) => (p.run ? flattenRun(p) : null));
+  const flat = pipelines.map((p) => (hasRun(p) ? flattenRun(p) : null));
   const rows: ConfigRow[] = [];
   for (const { key: group } of CONFIG_GROUPS) {
     const keys: string[] = [];
@@ -335,7 +344,7 @@ export function runConfigRows(pipelines: readonly Pipeline[]): ConfigRow[] {
         }
       }
     }
-    if (group === 'pipeline') {
+    if (group === 'run') {
       keys.sort((a, b) => {
         const ia = RUN_FIRST.indexOf(a);
         const ib = RUN_FIRST.indexOf(b);
@@ -369,7 +378,10 @@ export function formatConfigValue(key: string, v: unknown): ConfigValue {
     const short = String(Number(v.toPrecision(6)));
     return { text: short, kind: 'number', title: short === String(v) ? undefined : String(v) };
   }
-  if (typeof v === 'string') return { text: v, kind: 'text' };
+  if (typeof v === 'string') {
+    if (/sha256$/i.test(key) && /^[0-9a-f]{64}$/i.test(v)) return { text: `${v.slice(0, 12)}…`, kind: 'code', title: v };
+    return { text: v, kind: 'text' };
+  }
   if (typeof v === 'boolean') return { text: String(v), kind: 'code' };
   return { text: JSON.stringify(v), kind: 'code' };
 }
@@ -383,15 +395,34 @@ export interface Note {
   pos?: number;
 }
 
+/** What the pipeline's run log (summary.json) says about its records, or '' when nothing. */
+export function runLogNote(p: Pipeline): string {
+  const s = p.summary;
+  if (!s) return '';
+  const w = isRecord(s.records_with) ? s.records_with : {};
+  const n = (k: string) => (typeof w[k] === 'number' ? (w[k] as number) : 0);
+  const truncated = isRecord(s.finish_reasons) && typeof s.finish_reasons.length === 'number' ? s.finish_reasons.length : 0;
+  const parts = [
+    n('unresolved') ? `${plural(n('unresolved'), 'record')} with problems left after the repair rounds` : '',
+    n('fallbacks') ? `${plural(n('fallbacks'), 'record')} with values the model did not give (filled with a fallback)` : '',
+    n('schema_errors') ? `${plural(n('schema_errors'), 'record')} with schema errors` : '',
+    truncated ? `${plural(truncated, 'reply', 'replies')} cut off at the token limit` : '',
+  ].filter(Boolean);
+  return parts.length ? `Run log: ${parts.join(' · ')}.` : '';
+}
+
 /**
  * Things a reader should know before trusting the numbers: load issues,
- * predictions without a value / outside the domain / failing the schema.
- * Errors and warnings first, infos last.
+ * predictions without a value / outside the domain / failing the schema, and
+ * what each run's log reports. Errors and warnings first, infos last.
  */
 export function experimentNotes(analysis: Analysis): Note[] {
   const perPipeline: Note[] = [];
+  const runLogs: Note[] = [];
   const foldedMissing = new Set<string>();
   analysis.pipelines.forEach((pa, pos) => {
+    const log = runLogNote(pa.pipeline);
+    if (log) runLogs.push({ level: 'info', message: log, pos });
     const parts: string[] = [];
     if (pa.missing.length) {
       const eg = pa.missing.slice(0, 5).join(', ');
@@ -418,7 +449,7 @@ export function experimentNotes(analysis: Analysis): Note[] {
   if (goldFailures) {
     checks.push({ level: 'warning', message: `${plural(goldFailures, 'gold-standard record')} ${goldFailures === 1 ? 'fails' : 'fail'} JSON Schema validation.` });
   }
-  return [...byLevel('error'), ...byLevel('warning'), ...perPipeline, ...checks, ...byLevel('info')];
+  return [...byLevel('error'), ...byLevel('warning'), ...perPipeline, ...checks, ...runLogs, ...byLevel('info')];
 }
 
 // ----------------------------------------------------------- label layout
@@ -538,8 +569,8 @@ export function leaderboardCsv(snap: Snapshot, boot: BootstrapResult | null): st
     'pipeline',
     'strategy',
     'model',
+    'gold_standard',
     'population',
-    'metric_source',
     'records',
     'informative_f1',
     'informative_f1_ci_low',
@@ -558,12 +589,12 @@ export function leaderboardCsv(snap: Snapshot, boot: BootstrapResult | null): st
     'cells',
     'duplicate_agreement',
     'llm_calls',
-    'cached_calls',
+    'repair_rounds',
     'prompt_tokens',
-    'output_tokens',
-    'thinking_tokens',
+    'completion_tokens',
     'total_tokens',
-    'wall_seconds',
+    'model_seconds',
+    'truncated_replies',
   ];
   const lines = snap.order.map((r) => {
     const s = r.summary;
@@ -573,8 +604,8 @@ export function leaderboardCsv(snap: Snapshot, boot: BootstrapResult | null): st
       r.pipeline.name,
       r.cost.strategy,
       r.cost.model,
+      snap.gold,
       snap.population,
-      snap.source,
       r.records,
       s?.informative_f1,
       ci?.lo,
@@ -593,12 +624,12 @@ export function leaderboardCsv(snap: Snapshot, boot: BootstrapResult | null): st
       s?.cells,
       r.dup?.agreement,
       r.cost.calls,
-      r.cost.cachedCalls,
+      r.cost.repairRounds,
       r.cost.promptTokens,
-      r.cost.outputTokens,
-      r.cost.thoughtTokens,
+      r.cost.completionTokens,
       r.cost.totalTokens,
-      r.cost.wallSeconds,
+      r.cost.modelSeconds,
+      r.cost.truncated,
     ];
   });
   return toCsv([header, ...lines]);

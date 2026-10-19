@@ -1,12 +1,7 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { analyze, comparisonIds } from '../src/core/analysis';
 import { MISSING, Outcome } from '../src/core/evaluate';
-import { loadExperiment } from '../src/core/load';
 import { ReportIndex } from '../src/core/snippets';
-import { rerootFiles } from '../src/core/vfs';
-import type { VirtualFile } from '../src/core/types';
 import {
   FILTERS,
   buildSegments,
@@ -24,6 +19,7 @@ import {
   shortNames,
   textDiffers,
 } from '../src/views/records/model';
+import { EXAMPLE_NAME, hasExample, loadExample } from './helpers';
 
 describe('shortNames', () => {
   it('drops the prefix and suffix every name shares, at token boundaries', () => {
@@ -108,7 +104,7 @@ describe('navigation helpers', () => {
 });
 
 describe('free text and outcomes', () => {
-  it('compares free text like evaluate.py (whitespace and case ignored)', () => {
+  it('compares free text ignoring whitespace and case', () => {
     expect(normText('  Left   OVARY\n')).toBe('left ovary');
     expect(textDiffers('LEFT OVARY', 'left  ovary')).toBe(false);
     expect(textDiffers('LEFT OVARY', 'RIGHT OVARY')).toBe(true);
@@ -136,22 +132,9 @@ describe('free text and outcomes', () => {
 
 // ------------------------------------------------------------------ example
 
-const EXAMPLE = join(__dirname, '..', 'examples', 'experiment_1');
-const hasExample = existsSync(EXAMPLE);
-
-function readTree(dir: string, base = dir): VirtualFile[] {
-  const out: VirtualFile[] = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...readTree(full, base));
-    else out.push({ path: ['experiment_1', ...relative(base, full).split(sep)].join('/'), blob: new Blob([readFileSync(full)]) });
-  }
-  return out;
-}
-
-describe.skipIf(!hasExample)('records view on examples/experiment_1', () => {
+describe.skipIf(!hasExample)(`records view on examples/${EXAMPLE_NAME}`, () => {
   it('filters partition the navigable records consistently', async () => {
-    const experiment = await loadExperiment(rerootFiles(readTree(EXAMPLE), 'experiment_1'));
+    const experiment = await loadExample();
     const analysis = analyze(experiment);
     const facts = recordFacts(analysis);
     const shown = analysis.pipelines.map((_, i) => i);
@@ -172,13 +155,14 @@ describe.skipIf(!hasExample)('records view on examples/experiment_1', () => {
         if (some && !all) expect(matchesFilter(analysis, f, 'disagree', rid, shown)).toBe(true);
       }
       expect(count('dups')).toBe(ids.filter((rid) => (experiment.groupOf.get(rid)?.length ?? 1) > 1).length);
+      expect(count('notes')).toBe(ids.filter((rid) => experiment.pipelines.some((p) => p.notes.has(rid))).length);
     }
     // A single shown pipeline never "disagrees".
     expect(experiment.goldIds.some((rid) => matchesFilter(analysis, facts.get(rid), 'disagree', rid, [0]))).toBe(false);
   });
 
   it('builds clean highlight segments for every record and source', async () => {
-    const experiment = await loadExperiment(rerootFiles(readTree(EXAMPLE), 'experiment_1'));
+    const experiment = await loadExample();
     const { schema } = experiment;
     const t0 = performance.now();
     let records = 0;

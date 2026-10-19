@@ -124,6 +124,8 @@ export interface MenuItem {
 }
 
 export function openMenu(anchor: Element, items: MenuItem[]): void {
+  // Items without an icon keep their labels aligned with those that have one.
+  const spaced = items.some((it) => it.icon);
   const menu = h(
     'div',
     { class: 'menu', role: 'menu' },
@@ -138,7 +140,7 @@ export function openMenu(anchor: Element, items: MenuItem[]): void {
             it.onSelect();
           },
         },
-        it.icon ? icon(it.icon) : null,
+        it.icon ? icon(it.icon) : spaced ? h('span', { class: 'menu-icon-space', 'aria-hidden': 'true' }) : null,
         it.label,
       ),
     ),

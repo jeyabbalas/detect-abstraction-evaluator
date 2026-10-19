@@ -602,7 +602,7 @@
   cursor: pointer;
 }
 
-.rec-issue-link:hover > span:not(.pipeline-name):not(.rec-issue-rule) {
+.rec-issue-link:hover > span:not(.pipeline-name):not(.rec-issue-rule):not(.badge) {
   text-decoration: underline;
 }
 

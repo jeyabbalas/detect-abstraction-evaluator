@@ -1,10 +1,12 @@
 /** App shell: header, navigation, view lifecycle and the upload screen. */
 
-import type { Analysis } from './core/analysis';
+import { analyze, type Analysis } from './core/analysis';
+import { withGoldStandard } from './core/load';
+import type { GoldFile } from './core/types';
 import { applyTheme, buildHash, parseHash, type State, type StateKey, type Store, type ThemePref, type ViewName } from './state';
 import { h, render } from './ui/dom';
 import { icon, type IconName } from './ui/icons';
-import { hideTooltip, withTooltip } from './ui/components';
+import { hideTooltip, openMenu, toast, withTooltip } from './ui/components';
 import { fmtInt } from './ui/format';
 import { currentMode } from './ui/palette';
 import { mountLanding } from './views/landing';
@@ -69,6 +71,72 @@ export function mountApp(root: HTMLElement, store: Store): void {
     store.set({ analysis: null, route: parseHash('') });
   });
 
+  // ------------------------------------------------------- gold standard
+  // Re-scoring against another gold standard keeps the view and its URL.
+  const goldInput = h('input', { type: 'file', class: 'visually-hidden', accept: '.json,application/json', tabIndex: -1 });
+  let rescoring = false;
+  async function scoreAgainst(file: GoldFile) {
+    const current = store.get().analysis;
+    if (!current || rescoring) return;
+    rescoring = true;
+    toast(`Scoring against ${file.name}…`);
+    try {
+      await new Promise((r) => setTimeout(r, 0));
+      const next = analyze(await withGoldStandard(current.experiment, file));
+      if (store.get().analysis !== current) return; // another folder was opened meanwhile
+      const population = next.experiment.uniqueIds.length ? store.get().population : 'all';
+      store.set({ analysis: next, population });
+      toast(`Scored against ${next.experiment.goldFileName}`);
+    } catch (err) {
+      console.error(err);
+      toast(`${file.name} could not be used: ${(err as Error).message}`);
+    } finally {
+      rescoring = false;
+    }
+  }
+  goldInput.addEventListener('change', () => {
+    const file = goldInput.files?.[0];
+    goldInput.value = '';
+    if (file) void scoreAgainst({ name: file.name, blob: file });
+  });
+
+  function goldButton(a: Analysis): HTMLElement {
+    const exp = a.experiment;
+    const btn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'btn btn-sm btn-ghost gold-btn',
+        'aria-haspopup': 'menu',
+        'aria-label': `Gold standard: ${exp.goldFileName}. Switch to another or load one from disk`,
+      },
+      icon('scale'),
+      h('span', { class: 'gold-btn-label' }, exp.goldFileName),
+      icon('chevronDown'),
+    );
+    btn.addEventListener('click', () =>
+      openMenu(btn, [
+        ...exp.goldFiles.map((g) => ({
+          label: g.name,
+          icon: g.name === exp.goldFileName ? ('check' as const) : undefined,
+          onSelect: () => {
+            if (g.name !== exp.goldFileName) void scoreAgainst(g);
+          },
+        })),
+        { label: 'Load a gold-standard file…', icon: 'upload', onSelect: () => goldInput.click() },
+      ]),
+    );
+    return withTooltip(btn, () =>
+      h(
+        'div',
+        null,
+        h('div', { class: 'tt-title' }, 'Gold standard'),
+        h('div', null, exp.goldFileName),
+        h('div', { class: 'tt-muted' }, 'Every metric is scored against it. Click to switch to another or load one from disk.'),
+      ),
+    );
+  }
+
   function paintHeader(state: State) {
     const a = state.analysis;
     const brand = h(
@@ -106,7 +174,7 @@ export function mountApp(root: HTMLElement, store: Store): void {
         ),
       ),
     );
-    render(header, brand, nav, h('div', { class: 'header-actions' }, openBtn, themeBtn));
+    render(header, brand, nav, h('div', { class: 'header-actions' }, goldButton(a), goldInput, openBtn, themeBtn));
   }
 
   function paintNav(view: ViewName) {
@@ -160,7 +228,7 @@ export function mountApp(root: HTMLElement, store: Store): void {
     const inst = instances.get(name);
     if (!inst || store.get().route.view !== name) return;
     inst.wrap.hidden = false;
-    const all = new Set<StateKey>(['analysis', 'population', 'source', 'theme', 'mode', 'route']);
+    const all = new Set<StateKey>(['analysis', 'population', 'theme', 'mode', 'route']);
     const changed = fresh ? all : new Set([...inst.pending, 'route' as StateKey]);
     inst.pending.clear();
     inst.view.update(store.get(), changed);
@@ -178,7 +246,7 @@ export function mountApp(root: HTMLElement, store: Store): void {
       document.title = 'Abstraction Evaluator';
       landing = mountLanding(main, (analysis) => {
         const population = analysis.experiment.uniqueIds.length ? 'unique' : 'all';
-        store.set({ analysis, population, source: analysis.defaultSource });
+        store.set({ analysis, population });
       });
       return;
     }

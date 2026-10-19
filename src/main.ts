@@ -11,7 +11,6 @@ const theme = loadThemePref();
 const store = new Store({
   analysis: null,
   population: 'unique',
-  source: 'reported',
   theme,
   mode: applyTheme(theme),
   route: parseHash(location.hash),

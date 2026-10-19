@@ -71,13 +71,14 @@ export function navigableIds(analysis: Analysis, population: PopulationName): Re
 
 // ------------------------------------------------------------------ filters
 
-export type FilterKey = 'all' | 'errors' | 'disagree' | 'clean' | 'dups';
+export type FilterKey = 'all' | 'errors' | 'disagree' | 'clean' | 'notes' | 'dups';
 
 export const FILTERS: readonly { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'All records' },
   { key: 'errors', label: 'With errors' },
   { key: 'disagree', label: 'Pipelines disagree' },
   { key: 'clean', label: 'Error-free' },
+  { key: 'notes', label: 'With pipeline notes' },
   { key: 'dups', label: 'Duplicated texts' },
 ];
 
@@ -119,6 +120,8 @@ export function matchesFilter(
     }
     case 'disagree':
       return pipelinesDisagree(analysis, rid, shown);
+    case 'notes':
+      return shown.some((i) => analysis.pipelines[i]!.pipeline.notes.has(rid));
   }
 }
 
@@ -168,7 +171,7 @@ export function recordOptionLabel(rid: RecordId, facts: RecordFacts | undefined,
 
 // --------------------------------------------------------------- free text
 
-/** Whitespace-collapsed, lower-cased text (how evaluate.py compares free text). */
+/** Whitespace-collapsed, lower-cased text (how free text is compared with gold). */
 export function normText(value: string): string {
   return value.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
 }

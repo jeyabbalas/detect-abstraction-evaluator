@@ -152,7 +152,7 @@ function textRowTip(analysis: Analysis, model: FieldsModel, row: TextRow): Child
     'div',
     null,
     h('div', { class: 'tt-title' }, row.field.title),
-    h('div', { class: 'tt-muted' }, h('code', null, row.field.name)),
+    row.field.title !== row.field.name ? h('div', { class: 'tt-muted' }, h('code', null, row.field.name)) : null,
     h(
       'table',
       { class: 'fx-tt-table' },
@@ -194,7 +194,9 @@ export function textTable(analysis: Analysis, model: FieldsModel, onField: (name
         cell: (r) =>
           h('button', { type: 'button', class: 'fx-link', title: `${r.row.field.title} — open details`, onclick: () => onField(r.row.field.name) }, r.row.field.name),
       },
-      { key: 'title', label: 'Title', value: (r) => r.row.field.title, className: () => 'muted' },
+      ...(rows.some((r) => r.row.field.title !== r.row.field.name)
+        ? [{ key: 'title', label: 'Title', value: (r: R) => r.row.field.title, className: () => 'muted' }]
+        : []),
       {
         key: 'pipeline',
         label: 'Pipeline',

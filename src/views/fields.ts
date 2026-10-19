@@ -34,7 +34,7 @@ const createFieldsView: ViewFactory = (ctx) => {
   const { analysis, store } = ctx;
   const { schema } = analysis.experiment;
   const initial = store.get();
-  let model: FieldsModel = buildModel(analysis, initial.population, initial.source);
+  let model: FieldsModel = buildModel(analysis, initial.population);
   let metric: CategoryMetric = 'f1';
   let onlyErrors = model.fieldMax > 0;
 
@@ -85,7 +85,7 @@ const createFieldsView: ViewFactory = (ctx) => {
     const category = schema.categoryByKey.get(field.category)?.title;
     const d = openDrawer({
       title: field.title,
-      subtitle: [h('code', null, field.name), category ? ` · ${category}` : null],
+      subtitle: field.title !== field.name ? [h('code', null, field.name), category ? ` · ${category}` : null] : category,
       body: fieldDrawerContent(deps(), field),
       onClose: () => {
         if (drawer?.d !== d) return;
@@ -208,21 +208,19 @@ const createFieldsView: ViewFactory = (ctx) => {
     );
   }
 
-  function paintQuality(state: State) {
-    render(quality, consistencyCard(analysis, state.source, (name) => openField(name)), validityCard(analysis, (rid, field) => ctx.navigate('records', [rid], field ? { field } : {})));
+  function paintQuality() {
+    render(quality, consistencyCard(analysis, (name) => openField(name)), validityCard(analysis, (rid, field) => ctx.navigate('records', [rid], field ? { field } : {})));
   }
 
   return {
     el,
     update(state, changed) {
       scope.update(state, changed);
-      const data = changed.has('population') || changed.has('source');
+      const data = changed.has('population');
       if (data) {
-        if (state.population !== model.population || state.source !== model.source) {
-          model = buildModel(analysis, state.population, state.source);
-        }
+        if (state.population !== model.population) model = buildModel(analysis, state.population);
         paintHead();
-        paintQuality(state);
+        paintQuality();
         refreshDrawer();
       }
       // Charts carry hex colors for the mode; HTML swatches follow the theme through CSS variables.

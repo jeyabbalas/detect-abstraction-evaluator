@@ -1,13 +1,14 @@
 /**
  * Shared data model for an uploaded experiment directory.
  *
- * The directory layout mirrors what the abstraction code writes:
+ * The abstraction code writes everything except the gold standard, which the
+ * user supplies (and may swap for another to re-score):
  *
  *   <experiment>/
- *     data_dictionary/*.json        JSON Schema of the abstraction (array of records)
- *     gold_standard/*.json          one JSON array of gold records
+ *     data_dictionary/*.json        JSON Schema of one abstraction record (with x-abstraction)
+ *     gold_standard/*.json          gold-standard records, one JSON array per file
  *     pathology_reports/<id>.txt    one report per record_id
- *     abstractions/<pipeline>/      run.json, predictions.json, scores.json, traces/<id>.json
+ *     abstractions/<pipeline>/      config.json, summary.json, predictions.json, records/<id>.json
  */
 
 import type { DataDictionaryTable, JsonSchema } from 'json-schema-data-dictionary';
@@ -18,7 +19,7 @@ export type AbstractionRecord = Record<string, unknown>;
 
 /** A file inside the uploaded directory, with its path relative to the experiment root. */
 export interface VirtualFile {
-  /** '/'-separated path relative to the experiment root, e.g. `abstractions/run_a/run.json`. */
+  /** '/'-separated path relative to the experiment root, e.g. `abstractions/run_a/config.json`. */
   path: string;
   blob: Blob;
 }
@@ -45,7 +46,7 @@ export interface FieldInfo {
   /** Long description (assignment rules) from the schema. */
   description: string;
   kind: FieldKind;
-  /** Category key (the `$defs` key, e.g. `procedures`). */
+  /** Category key (the progressive pipeline's stage, e.g. `specimens`). */
   category: string;
   /** Allowed values for categorical fields (in schema order). Empty for text fields. */
   domain: string[];
@@ -59,10 +60,11 @@ export interface FieldInfo {
 }
 
 export interface CategoryInfo {
-  /** `$defs` key, as used by scores.json `per_category`. */
+  /** Stage name from `x-abstraction.progressive.stages`, e.g. `specimens`. */
   key: string;
-  /** Title after the em dash, e.g. "Procedures and evaluated sites". */
+  /** Display title, e.g. "Specimens". */
   title: string;
+  /** What the stage codes (its `$comment`). */
   description: string;
   /** All fields (categorical and text) in schema order. */
   fields: string[];
@@ -82,7 +84,7 @@ export interface SchemaModel {
   /** The name of the root schema file. */
   rootName: string;
   documents: SchemaDocument[];
-  /** The root (array-of-records) schema. */
+  /** The root schema: one abstraction record. */
   root: Record<string, unknown>;
   idField: string;
   /** Every variable except the id, in schema order. */
@@ -92,12 +94,14 @@ export interface SchemaModel {
   categoryByKey: Map<string, CategoryInfo>;
   categoricalFields: string[];
   textFields: string[];
+  /** Cross-field rules: distinct `x-rule` numbers of the root's if/then blocks (else one per block). */
+  ruleCount: number;
   /** Flattened data dictionary (json-schema-data-dictionary). */
   dictionary: DataDictionaryTable;
 }
 
 // ---------------------------------------------------------------------------
-// Scores (the structure of scores.json, which evaluate.ts reproduces)
+// Scores (computed by evaluate.ts)
 // ---------------------------------------------------------------------------
 
 export interface ScoreSummary {
@@ -164,27 +168,62 @@ export interface Scores {
 // Pipelines and the experiment
 // ---------------------------------------------------------------------------
 
-export interface RunUsage {
-  calls?: number;
-  cached_calls?: number;
-  prompt_tokens?: number;
-  output_tokens?: number;
-  thought_tokens?: number;
-  seconds?: number;
-  retries?: number;
-  failures?: number;
-  finish_reasons?: Record<string, number>;
+/** `config.json`: how a pipeline was run. */
+export interface PipelineConfig {
+  /** Strategy, e.g. `baseline` or `progressive`. */
+  pipeline?: string;
+  model?: string;
+  /** SHA-256 of the data dictionary file the run used. */
+  schema_sha256?: string;
+  max_repairs?: number;
+  client_settings?: Record<string, unknown>;
+  package_version?: string;
+  created?: string;
   [key: string]: unknown;
 }
 
-export interface RunMeta {
-  strategy?: string;
-  settings?: Record<string, unknown>;
-  ids?: number[];
-  failures?: Record<string, string>;
-  wall_seconds?: number;
-  usage?: RunUsage;
+/** One record's entry in `summary.json` `issues`: what the pipeline itself reported. */
+export interface RecordNotes {
+  /** Problems still open after the repair rounds, by stage. */
+  unresolved?: Record<string, string[]>;
+  /** Values the model did not give, filled with the field's least informative label. */
+  fallbacks?: string[];
+  /** Negative labels changed to 'Cannot determine' because no gating compartment was examined. */
+  gate_changes?: string[];
+  /** Skip patterns (x-fix rules) applied to the finished record. */
+  fixes?: string[];
+  schema_errors?: string[];
   [key: string]: unknown;
+}
+
+/** `summary.json`: totals over a pipeline run. */
+export interface PipelineSummary {
+  config?: PipelineConfig;
+  /** Records the run abstracted. */
+  records?: number;
+  failures?: unknown[];
+  unreadable_records?: unknown[];
+  /** Records with at least one note of each kind. */
+  records_with?: Record<string, number>;
+  /** Replies per finish reason (`length` = cut off at the token limit). */
+  finish_reasons?: Record<string, number>;
+  /** Records each stage ran on. */
+  stage_runs?: Record<string, number>;
+  calls?: number;
+  repair_rounds?: number;
+  prompt_tokens?: number;
+  /** Completion tokens, reasoning included. */
+  completion_tokens?: number;
+  /** Summed model-call time. */
+  model_seconds?: number;
+  issues?: Record<string, RecordNotes>;
+  [key: string]: unknown;
+}
+
+/** A record the pipeline could not abstract (summary.json `failures` / `unreadable_records`). */
+export interface RunFailure {
+  rid: RecordId;
+  message: string;
 }
 
 export interface Pipeline {
@@ -194,26 +233,40 @@ export interface Pipeline {
   name: string;
   /** 0-based color slot, fixed by sorted folder order. */
   index: number;
-  run: RunMeta | null;
+  /** config.json (else summary.json `config`). */
+  config: PipelineConfig | null;
+  summary: PipelineSummary | null;
   predictions: Map<RecordId, AbstractionRecord>;
-  /** Reported scores (scores.json), if present. */
-  reportedScores: Scores | null;
-  /** scores.txt, if present. */
-  scoresText: string | null;
-  /** Lazily parsed per-record traces. */
-  traceFiles: Map<RecordId, Blob>;
-  /** The records this run was asked to abstract (run.json `ids`), else the gold ids. */
+  /** Per-record outputs with the model trace (`records/<record_id>.json`), parsed lazily. */
+  recordFiles: Map<RecordId, Blob>;
+  /** The pipeline's own notes per record (summary.json `issues`). */
+  notes: Map<RecordId, RecordNotes>;
+  failures: RunFailure[];
+  /** Every record the run covered: predictions, record files and failures. */
+  attempted: RecordId[];
+  /** The attempted records that are in the gold standard (the ones scored), sorted. */
   ids: RecordId[];
+}
+
+/** A gold-standard file the experiment can be scored against. */
+export interface GoldFile {
+  /** File name (relative to gold_standard/, or as picked from disk). */
+  name: string;
+  blob: Blob;
 }
 
 export interface Experiment {
   /** Name of the uploaded root folder (or zip). */
   name: string;
   schema: SchemaModel;
+  /** SHA-256 (hex) of the root data-dictionary file, as config.json `schema_sha256` records it. */
+  schemaSha256: string | null;
+  /** Gold standards to choose from; `goldFileName` is the one in use. */
+  goldFiles: GoldFile[];
+  goldFileName: string;
   gold: Map<RecordId, AbstractionRecord>;
   /** Gold record ids, sorted ascending. */
   goldIds: RecordId[];
-  goldFileName: string;
   reports: Map<RecordId, string>;
   /** Groups of record_ids with identical report text, lowest id first (singletons included). */
   duplicateGroups: RecordId[][];
@@ -222,5 +275,8 @@ export interface Experiment {
   /** Lowest record_id of each identical-text group, sorted. */
   uniqueIds: RecordId[];
   pipelines: Pipeline[];
+  /** Every load issue: `baseIssues` plus those of the gold standard in use. */
   issues: LoadIssue[];
+  /** Issues that do not depend on the gold standard. */
+  baseIssues: LoadIssue[];
 }
