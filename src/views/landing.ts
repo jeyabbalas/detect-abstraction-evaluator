@@ -1,7 +1,7 @@
 /** Upload screen: pick or drop an experiment folder (or a .zip of it). */
 
 import { analyze, type Analysis } from '../core/analysis';
-import { LoadError, MissingGoldError, loadExperiment } from '../core/load';
+import { LoadError, MissingGoldError, UnreadableFileError, loadExperiment } from '../core/load';
 import { SchemaError } from '../core/schema';
 import { fromDataTransfer, fromFileList, rerootFiles, type FileSet } from '../core/vfs';
 import { callout } from '../ui/components';
@@ -132,6 +132,13 @@ export function mountLanding(parent: HTMLElement, onLoaded: (analysis: Analysis)
         callout('critical', [
           h('strong', null, known ? 'This folder could not be loaded.' : 'Something went wrong while loading.'),
           h('div', null, (err as Error).message || String(err)),
+          err instanceof UnreadableFileError
+            ? h(
+                'div',
+                null,
+                'Your browser would not read it: the file changed after it was chosen, or security software (such as data-loss prevention) blocked it. Choosing the folder with Choose folder can work where dropping it does not.',
+              )
+            : null,
         ]),
       );
     } finally {

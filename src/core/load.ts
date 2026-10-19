@@ -19,6 +19,7 @@ import type {
   RecordId,
   RecordNotes,
   RunFailure,
+  SchemaModel,
   VirtualFile,
 } from './types';
 import type { FileSet } from './vfs';
@@ -27,6 +28,12 @@ export class LoadError extends Error {}
 
 /** The folder has no gold_standard/*.json; one can be added from disk and the folder loaded again. */
 export class MissingGoldError extends LoadError {}
+
+/**
+ * The browser would not read a file it was given: the file changed after it was
+ * chosen, or security software blocked it (e.g. data-loss prevention on a drop).
+ */
+export class UnreadableFileError extends LoadError {}
 
 const naturalCompare = (a: string, b: string): number =>
   a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
@@ -42,8 +49,17 @@ export function toRecordId(value: unknown): RecordId | null {
   return null;
 }
 
+async function readText(file: { path: string; blob: Blob }): Promise<string> {
+  try {
+    return await file.blob.text();
+  } catch (err) {
+    const { name, message } = err as Error;
+    throw new UnreadableFileError(`${file.path} could not be read (${name}: ${message.trim().replace(/\.$/, '')}).`);
+  }
+}
+
 async function readJson(file: { path: string; blob: Blob }): Promise<unknown> {
-  const text = await file.blob.text();
+  const text = await readText(file);
   try {
     return JSON.parse(text);
   } catch (err) {
@@ -156,14 +172,22 @@ export async function loadExperiment(set: FileSet, onProgress?: (p: LoadProgress
   const dictFiles = under('data_dictionary').filter((f) => /\.json$/i.test(f.path));
   if (!dictFiles.length) throw new LoadError('Missing data_dictionary/: add the JSON Schema of the abstraction (a .json file).');
   const schemaInputs: SchemaInput[] = [];
+  let unusable: Error | null = null;
   for (const f of dictFiles) {
     try {
       schemaInputs.push({ name: f.path.slice('data_dictionary/'.length), json: await readJson(f) });
     } catch (err) {
+      unusable ??= err as Error;
       issues.push({ level: 'warning', message: (err as Error).message });
     }
   }
-  const schema = buildSchemaModel(schemaInputs);
+  let schema: SchemaModel;
+  try {
+    schema = buildSchemaModel(schemaInputs);
+  } catch (err) {
+    // Without a schema, a file that could not be read or parsed is the reason to report.
+    throw unusable ?? err;
+  }
   if (!schema.categoricalFields.length) {
     throw new LoadError(`The data dictionary (${schema.rootName}) declares no categorical variables to evaluate.`);
   }
@@ -183,7 +207,7 @@ export async function loadExperiment(set: FileSet, onProgress?: (p: LoadProgress
         return;
       }
       // Universal newlines.
-      reports.set(rid, (await f.blob.text()).replace(/\r\n?/g, '\n'));
+      reports.set(rid, (await readText(f)).replace(/\r\n?/g, '\n'));
     }),
   );
   if (!reportFiles.length) issues.push({ level: 'warning', message: 'No pathology_reports/*.txt found: report text and the unique-text population are unavailable.' });

@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyze, comparisonIds, getBootstrap, scoresFor } from '../src/core/analysis';
 import { Outcome } from '../src/core/evaluate';
-import { LoadError, MissingGoldError, failuresFrom, loadExperiment, readRecordFile, withGoldStandard } from '../src/core/load';
+import { LoadError, MissingGoldError, UnreadableFileError, failuresFrom, loadExperiment, readRecordFile, withGoldStandard } from '../src/core/load';
 import { fieldNamed, runNotes } from '../src/core/notes';
 import type { VirtualFile } from '../src/core/types';
 
@@ -209,5 +209,26 @@ describe('synthetic experiment edge cases', () => {
     await expect(loadExperiment({ name: 'toy', files: noGold })).rejects.toBeInstanceOf(MissingGoldError);
     const noPipelines = experimentFiles().filter((f) => !f.path.startsWith('abstractions/'));
     await expect(loadExperiment({ name: 'toy', files: noPipelines })).rejects.toThrow(/No pipelines/);
+  });
+
+  it('names a file the browser will not read, instead of reporting it missing', async () => {
+    // What Firefox does with a dropped file that security software blocks.
+    class BlockedBlob extends Blob {
+      override text(): Promise<string> {
+        return Promise.reject(new DOMException('The operation was aborted. ', 'AbortError'));
+      }
+    }
+    const blocked = (prefix: string) =>
+      experimentFiles().map((f) => (f.path.startsWith(prefix) ? { path: f.path, blob: new BlockedBlob([]) } : f));
+
+    const dictionary = loadExperiment({ name: 'toy', files: blocked('data_dictionary/') });
+    await expect(dictionary).rejects.toBeInstanceOf(UnreadableFileError);
+    await expect(dictionary).rejects.toThrow('data_dictionary/toy.schema.json could not be read (AbortError: The operation was aborted).');
+    await expect(loadExperiment({ name: 'toy', files: blocked('pathology_reports/2.txt') })).rejects.toThrow(/^pathology_reports\/2\.txt could not be read/);
+    await expect(loadExperiment({ name: 'toy', files: blocked('gold_standard/') })).rejects.toBeInstanceOf(UnreadableFileError);
+    // An unreadable run is reported and skipped; the others load.
+    const exp = await loadExperiment({ name: 'toy', files: blocked('abstractions/b/') });
+    expect(exp.pipelines.map((p) => p.name)).toEqual(['a']);
+    expect(exp.issues.find((i) => i.pipeline === 'b')?.message).toMatch(/^b: abstractions\/b\/predictions\.json could not be read/);
   });
 });
