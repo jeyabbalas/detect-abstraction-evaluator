@@ -31,6 +31,14 @@
   border-radius: var(--radius-lg);
   background: var(--surface);
   overflow: hidden;
+  /* The component draws its own bordered table; keep it, the title and the toolbar off the card's edge. */
+  padding: 16px 18px 18px;
+}
+
+@media (max-width: 640px) {
+  .dictionary-host {
+    padding: 12px;
+  }
 }
 
 .dictionary-about {
